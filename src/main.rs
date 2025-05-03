@@ -25,7 +25,7 @@ impl Default for State {
             needs_compute: true.into(),
             continuous_compute: false,
             zoom_speed: 0.001,
-            shift_speed: 200,
+            shift_speed: 50,
             mouse_position: (0.0, 0.0),
         }
     }
@@ -48,6 +48,7 @@ fn model(app: &App) -> Model {
     let descriptor = wgpu::DeviceDescriptor {
         label: Some("Point Cloud Renderer Device"),
         features: wgpu::Features::default()
+            // | wgpu::Features::SHADER_F64
             | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
         limits: wgpu::Limits {
             // max_storage_buffer_binding_size: 2 << 30, // To support big point clouds
@@ -204,7 +205,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
         Key::Up => {
             let current_y_range = model.faraday_data.get_y_range();
             let shift_y = get_shift_speed(current_y_range, state.shift_speed);
-            let new_y_range = shift(current_y_range, -shift_y);
+            let new_y_range = shift(current_y_range, shift_y);
             model.faraday_data.update_y_range(new_y_range);
             model.update_faraday_data.replace(true);
             state.needs_compute.replace(true);
@@ -212,7 +213,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
         Key::Down => {
             let current_y_range = model.faraday_data.get_y_range();
             let shift_y = get_shift_speed(current_y_range, state.shift_speed);
-            let new_y_range = shift(current_y_range, shift_y);
+            let new_y_range = shift(current_y_range, -shift_y);
             model.faraday_data.update_y_range(new_y_range);
             model.update_faraday_data.replace(true);
             state.needs_compute.replace(true);
