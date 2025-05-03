@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments, non_snake_case)]
+
 use nannou::wgpu;
 
 // This struct is passed to the GPU as a uniform buffer
