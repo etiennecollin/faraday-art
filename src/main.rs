@@ -7,14 +7,22 @@ use nannou_egui::{
     egui::{self},
 };
 
-const WINDOW_SIZE: (u32, u32) = (512, 512);
+/// The size of the window in pixels.
+const WINDOW_SIZE: (u32, u32) = (1024, 1024);
+
+/// Maximum zoom delta to prevent floating point errors.
+/// The zoom delta is the difference between the maximum and minimum values of the x and y ranges.
+const MAX_ZOOM_DELTA: f32 = 1e-5;
+
 type FloatChoice = f32;
 
 struct State {
     needs_compute: RefCell<bool>,
     continuous_compute: bool,
     /// Relative position of the mouse as a percentage of the function range
-    mouse_position: (FloatChoice, FloatChoice),
+    mouse_pos: (FloatChoice, FloatChoice),
+    prev_drag_pos: (FloatChoice, FloatChoice),
+    dragging: bool,
     zoom_speed: FloatChoice,
     shift_speed: u32,
 }
@@ -24,9 +32,11 @@ impl Default for State {
         Self {
             needs_compute: true.into(),
             continuous_compute: false,
+            prev_drag_pos: (0.0, 0.0),
+            dragging: false,
             zoom_speed: 0.001,
             shift_speed: 50,
-            mouse_position: (0.0, 0.0),
+            mouse_pos: (0.0, 0.0),
         }
     }
 }
@@ -66,6 +76,8 @@ fn model(app: &App) -> Model {
         .key_pressed(key_pressed)
         .mouse_wheel(mouse_wheel)
         .mouse_moved(mouse_moved)
+        .mouse_pressed(mouse_pressed)
+        .mouse_released(mouse_released)
         .device_descriptor(descriptor)
         .build()
         .unwrap();
@@ -269,8 +281,14 @@ fn mouse_wheel(_app: &App, model: &mut Model, delta: MouseScrollDelta, _phase: T
         current_x_range,
         current_y_range,
         zoom_factor,
-        state.mouse_position,
+        state.mouse_pos,
     );
+
+    if (new_x_range.1 - new_x_range.0).abs() < MAX_ZOOM_DELTA
+        || (new_y_range.1 - new_y_range.0).abs() < MAX_ZOOM_DELTA
+    {
+        return;
+    }
 
     // Update the x and y ranges in the FaradayData
     model.faraday_data.update_x_range(new_x_range);
@@ -281,9 +299,51 @@ fn mouse_wheel(_app: &App, model: &mut Model, delta: MouseScrollDelta, _phase: T
 
 fn mouse_moved(app: &App, model: &mut Model, pos: Point2) {
     let state = &mut model.state;
-    let (_, max_x, _, max_y) = app.window_rect().l_r_b_t();
-    let (width, height) = app.window_rect().w_h();
-    let x_percent = (pos.x + max_x) / width;
-    let y_percent = (pos.y + max_y) / height;
-    state.mouse_position = (x_percent as FloatChoice, y_percent as FloatChoice);
+    let (w, h) = app.window_rect().w_h();
+
+    // Convert centered coords (-w/2..w/2) to [0..1]
+    let x_norm = (pos.x + w * 0.5) / w;
+    let y_norm = (pos.y + h * 0.5) / h;
+    state.mouse_pos = (x_norm, y_norm);
+
+    // If we are dragging, compute how much the mouse moved (in normalized space)
+    if state.dragging {
+        let (prev_x, prev_y) = state.prev_drag_pos;
+        let dx = state.mouse_pos.0 - prev_x;
+        let dy = state.mouse_pos.1 - prev_y;
+
+        // Get current ranges
+        let (x0, x1) = model.faraday_data.get_x_range();
+        let (y0, y1) = model.faraday_data.get_y_range();
+
+        // Compute how much to shift in "range units"
+        let range_w = x1 - x0;
+        let range_h = y1 - y0;
+        let shift_x = -dx * range_w;
+        let shift_y = -dy * range_h;
+
+        // Apply shift()
+        let new_x_range = shift((x0, x1), shift_x);
+        let new_y_range = shift((y0, y1), shift_y);
+        model.faraday_data.update_x_range(new_x_range);
+        model.faraday_data.update_y_range(new_y_range);
+
+        // Flag to recompute and update uniforms
+        model.update_faraday_data.replace(true);
+        state.needs_compute.replace(true);
+
+        // Remember this pos for the next delta
+        state.prev_drag_pos = state.mouse_pos;
+    }
+}
+
+fn mouse_pressed(_app: &App, model: &mut Model, _button: MouseButton) {
+    let state = &mut model.state;
+    state.dragging = true;
+    state.prev_drag_pos = state.mouse_pos;
+}
+
+fn mouse_released(_app: &App, model: &mut Model, _button: MouseButton) {
+    let state = &mut model.state;
+    state.dragging = false;
 }
