@@ -14,16 +14,24 @@ const WINDOW_SIZE: (u32, u32) = (1024, 1024);
 /// The zoom delta is the difference between the maximum and minimum values of the x and y ranges.
 const MAX_ZOOM_DELTA: f32 = 1e-5;
 
+/// Float type used for computations.
 type FloatChoice = f32;
 
 struct State {
+    /// Indicates whether the image needs to be recomputed.
     needs_compute: RefCell<bool>,
+    /// Whether to compute the image continuously or not.
     continuous_compute: bool,
-    /// Relative position of the mouse as a percentage of the function range
+    /// Relative position of the mouse as a percentage of the function range.
     mouse_pos: (FloatChoice, FloatChoice),
+    /// Previous position of the mouse as a percentage of the function range.
+    /// This is used to compute the delta of the mouse movement.
     prev_drag_pos: (FloatChoice, FloatChoice),
+    /// True if the mouse is currently being dragged.
     dragging: bool,
+    /// Zoom speed factor.
     zoom_speed: FloatChoice,
+    /// Shift speed factor.
     shift_speed: u32,
 }
 
