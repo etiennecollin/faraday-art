@@ -1,3 +1,5 @@
+use std::cell::RefMut;
+
 use nannou::prelude::*;
 
 use super::faraday::FaradayData;
@@ -108,11 +110,10 @@ impl GPUPipeline {
     ///
     /// # Arguments
     ///
-    /// - `frame`: A reference to the frame being rendered.
-    pub fn dispatch_compute(&self, frame: &Frame) {
-        let mut encoder = frame.command_encoder();
-        let frame_size = frame.texture_size();
-
+    /// - `encoder`: A mutable reference to the command encoder used for rendering.
+    /// - `frame_size`: The size of the frame to be rendered. This is used to set
+    ///   the workgroup size for the compute shader.
+    pub fn dispatch_compute(&self, encoder: &mut wgpu::CommandEncoder, frame_size: [u32; 2]) {
         let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("Compute Pass"),
         });
@@ -132,12 +133,17 @@ impl GPUPipeline {
     ///
     /// # Arguments
     ///
-    /// - `frame`: A reference to the frame being rendered.
-    pub fn dispatch_render(&self, frame: &Frame) {
-        let mut encoder = frame.command_encoder();
-
+    /// - `encoder`: A mutable reference to the command encoder used for rendering.
+    /// - `target_texture_view`: A reference to the texture view used for rendering.
+    ///   This is the texture view on which the output of the compute shader will
+    ///   be drawn.
+    pub fn dispatch_render(
+        &self,
+        mut encoder: RefMut<'_, wgpu::CommandEncoder>,
+        target_texture_view: &wgpu::TextureView,
+    ) {
         let mut render_pass = wgpu::RenderPassBuilder::new()
-            .color_attachment(frame.texture_view(), |color| color)
+            .color_attachment(target_texture_view, |color| color)
             .begin(&mut encoder);
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, &self.render_bg, &[]);
