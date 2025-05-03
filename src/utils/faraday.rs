@@ -1,5 +1,8 @@
 use nannou::wgpu;
 
+// This struct is passed to the GPU as a uniform buffer
+// See alignment rules for the GPU:
+// https://www.w3.org/TR/WGSL/#alignment-and-size
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct FaradayData {
@@ -10,6 +13,18 @@ pub struct FaradayData {
     x_range: [f32; 2],
     /// Initial render range in y for function
     y_range: [f32; 2],
+}
+
+impl Default for FaradayData {
+    fn default() -> Self {
+        Self {
+            max_iter: 100,
+            num_particles: 20_000,
+            _padding: [0; 2],
+            x_range: [-2.0, 0.50],
+            y_range: [-1.25, 1.25],
+        }
+    }
 }
 
 impl FaradayData {
@@ -36,18 +51,6 @@ impl FaradayData {
     /// Updates the the y_range field of the struct.
     pub fn update_y_range(&mut self, y_range: (f32, f32)) {
         self.y_range = [y_range.0, y_range.1];
-    }
-}
-
-impl Default for FaradayData {
-    fn default() -> Self {
-        Self {
-            max_iter: 20_000,
-            num_particles: 20_000,
-            _padding: [0; 2],
-            x_range: [0.0, 1.0],
-            y_range: [0.0, 1.0],
-        }
     }
 }
 

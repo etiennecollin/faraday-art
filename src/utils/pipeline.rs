@@ -38,7 +38,8 @@ impl GPUPipeline {
         let render_shader = device.create_shader_module(wgpu::include_wgsl!("shaders/render.wgsl"));
 
         // Create texture
-        let texture = Self::create_texture(device, [width, height], Frame::TEXTURE_FORMAT);
+        let texture =
+            Self::create_texture(device, [width, height], wgpu::TextureFormat::Rgba32Float);
         let texture_view = texture.view().build();
 
         // Create data buffer
