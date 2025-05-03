@@ -1,3 +1,5 @@
+use num::{Float, PrimInt, Unsigned};
+
 /// Takes a number and maps it from one range to another.
 ///
 /// # Arguments
@@ -11,7 +13,7 @@
 ///
 /// - The mapped number.
 #[inline(always)]
-pub fn map(input: f64, input_range: (f64, f64), output_range: (f64, f64)) -> f64 {
+pub fn map<T: Float>(input: T, input_range: (T, T), output_range: (T, T)) -> T {
     (input - input_range.0) / (input_range.1 - input_range.0) * (output_range.1 - output_range.0)
         + output_range.0
 }
@@ -30,12 +32,12 @@ pub fn map(input: f64, input_range: (f64, f64), output_range: (f64, f64)) -> f64
 ///
 /// - The new x and y ranges after zooming in.
 #[inline(always)]
-pub fn zoom(
-    x_range: (f64, f64),
-    y_range: (f64, f64),
-    zoom_factor: f64,
-    zoom_focus: (f64, f64),
-) -> ((f64, f64), (f64, f64)) {
+pub fn zoom<T: Float>(
+    x_range: (T, T),
+    y_range: (T, T),
+    zoom_factor: T,
+    zoom_focus: (T, T),
+) -> ((T, T), (T, T)) {
     // Move the range so that the center aligns with the origin
     let x_range_translated = shift(x_range, -zoom_focus.0);
     let y_range_translated = shift(y_range, -zoom_focus.1);
@@ -65,12 +67,12 @@ pub fn zoom(
 ///
 /// - The new x and y ranges after zooming in.
 #[inline(always)]
-pub fn zoom_relative(
-    x_range: (f64, f64),
-    y_range: (f64, f64),
-    zoom_factor: f64,
-    zoom_focus: (f64, f64),
-) -> ((f64, f64), (f64, f64)) {
+pub fn zoom_relative<T: Float>(
+    x_range: (T, T),
+    y_range: (T, T),
+    zoom_factor: T,
+    zoom_focus: (T, T),
+) -> ((T, T), (T, T)) {
     let focus_x = zoom_focus.0 * (x_range.1 - x_range.0) + x_range.0;
     let focus_y = zoom_focus.1 * (y_range.1 - y_range.0) + y_range.0;
     zoom(x_range, y_range, zoom_factor, (focus_x, focus_y))
@@ -87,7 +89,7 @@ pub fn zoom_relative(
 ///
 /// - The new range after scaling.
 #[inline(always)]
-pub fn scale(range: (f64, f64), factor: f64) -> (f64, f64) {
+pub fn scale<T: Float>(range: (T, T), factor: T) -> (T, T) {
     (range.0 * factor, range.1 * factor)
 }
 
@@ -102,7 +104,7 @@ pub fn scale(range: (f64, f64), factor: f64) -> (f64, f64) {
 ///
 /// - The new range after shifting.
 #[inline(always)]
-pub fn shift(range: (f64, f64), offset: f64) -> (f64, f64) {
+pub fn shift<T: Float>(range: (T, T), offset: T) -> (T, T) {
     (range.0 + offset, range.1 + offset)
 }
 
@@ -117,6 +119,6 @@ pub fn shift(range: (f64, f64), offset: f64) -> (f64, f64) {
 ///
 /// - The shift speed.
 #[inline(always)]
-pub fn get_shift_speed(range: (f64, f64), factor: u32) -> f64 {
-    (range.1 - range.0) / factor as f64
+pub fn get_shift_speed<T: Float, U: Unsigned + PrimInt>(range: (T, T), factor: U) -> T {
+    (range.1 - range.0) / T::from(factor).expect("Conversion failed")
 }

@@ -5,12 +5,49 @@ use nannou::wgpu;
 pub struct FaradayData {
     pub max_iter: u32,
     pub num_particles: u32,
+    _padding: [u32; 2],
+    /// Initial render range in x for function
+    x_range: [f32; 2],
+    /// Initial render range in y for function
+    y_range: [f32; 2],
 }
 
 impl FaradayData {
     /// Returns the struct as a byte slice.
     pub fn as_bytes(&self) -> &[u8] {
         unsafe { wgpu::bytes::from(self) }
+    }
+
+    /// Gets the number x_range as a tuple.
+    pub fn get_x_range(&self) -> (f32, f32) {
+        (self.x_range[0], self.x_range[1])
+    }
+
+    /// Gets the number y_range as a tuple.
+    pub fn get_y_range(&self) -> (f32, f32) {
+        (self.y_range[0], self.y_range[1])
+    }
+
+    /// Updates the the x_range field of the struct.
+    pub fn update_x_range(&mut self, x_range: (f32, f32)) {
+        self.x_range = [x_range.0, x_range.1];
+    }
+
+    /// Updates the the y_range field of the struct.
+    pub fn update_y_range(&mut self, y_range: (f32, f32)) {
+        self.y_range = [y_range.0, y_range.1];
+    }
+}
+
+impl Default for FaradayData {
+    fn default() -> Self {
+        Self {
+            max_iter: 20_000,
+            num_particles: 20_000,
+            _padding: [0; 2],
+            x_range: [0.0, 1.0],
+            y_range: [0.0, 1.0],
+        }
     }
 }
 
