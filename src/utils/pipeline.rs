@@ -17,7 +17,8 @@ pub struct GPUPipeline {
 }
 
 impl GPUPipeline {
-    const WORKGROUP_SIZE: u32 = 8;
+    /// Size of the workgroup for the compute shader.
+    const WORKGROUP_SIZE: u32 = 16;
 
     /// Initializes a new GPU compute pipeline.
     ///

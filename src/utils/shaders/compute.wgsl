@@ -16,7 +16,7 @@ var<uniform> data: FaradayData;
 alias float = f32;
 alias vec2float = vec2<f32>;
 
-@compute @workgroup_size(8, 8)
+@compute @workgroup_size(16, 16)
 fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let dims = textureDimensions(tex);
 
