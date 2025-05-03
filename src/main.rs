@@ -1,26 +1,17 @@
 use std::cell::RefCell;
 
-use faraday_art::{
-    get_save_path,
-    utils::{faraday::*, images::*, math::*, pipeline::GPUPipeline},
-};
-use nannou::{
-    image::{self, ImageBuffer, RgbaImage},
-    lyon::geom::quadratic_bezier::MonotonicQuadraticBezierSegment,
-    prelude::*,
-};
+use faraday_art::utils::{faraday::*, math::*, pipeline::GPUPipeline};
+use nannou::prelude::*;
 use nannou_egui::{
-    Egui, FrameCtx,
+    Egui,
     egui::{self},
 };
-use rayon::iter::{ParallelBridge, ParallelIterator};
 
 const WINDOW_SIZE: (u32, u32) = (512, 512);
 type FloatChoice = f32;
 
 struct State {
-    image: ImageBuffer<image::Rgba<u8>, Vec<u8>>,
-    redraw: bool,
+    redraw: RefCell<bool>,
     continuous_redraw: bool,
     no_redraw: bool,
     /// Relative position of the mouse as a percentage of the function range
@@ -32,8 +23,7 @@ struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
-            image: ImageBuffer::new(WINDOW_SIZE.0, WINDOW_SIZE.1),
-            redraw: true,
+            redraw: true.into(),
             continuous_redraw: false,
             no_redraw: false,
             zoom_speed: 0.001,
@@ -85,7 +75,6 @@ fn model(app: &App) -> Model {
     let egui = Egui::from_window(&window);
 
     let faraday_data = FaradayData::default();
-
     let pipeline = GPUPipeline::new(&window, faraday_data);
 
     Model {
@@ -97,21 +86,40 @@ fn model(app: &App) -> Model {
     }
 }
 
+fn view(_app: &App, model: &Model, frame: Frame) {
+    let state = &model.state;
+
+    // Check if the we need to redraw the frame
+    if (*state.redraw.borrow() || state.continuous_redraw) && !state.no_redraw {
+        let mut pipeline = model.pipeline.borrow_mut();
+
+        // Check if the faraday data needs to be updated
+        if *model.update_faraday_data.borrow() {
+            let device = frame.device_queue_pair().device();
+            let encoder = &mut frame.command_encoder();
+            pipeline.update_faraday_data(device, encoder, model.faraday_data);
+            model.update_faraday_data.replace(false);
+        }
+
+        // Render the image
+        pipeline.check_resize(frame.device_queue_pair().device(), frame.texture_size());
+        pipeline.dispatch_compute(&frame);
+        pipeline.dispatch_render(&frame);
+
+        state.redraw.replace(false);
+
+        // Update the egui
+        model.egui.draw_to_frame(&frame).unwrap();
+    }
+}
+
 fn update(app: &App, model: &mut Model, update: Update) {
     // Update egui
     model.egui.set_elapsed_time(update.since_start);
     update_egui(model, app);
-
-    // let state = &mut model.state;
-    // if (state.redraw || state.continuous_redraw) && !state.no_redraw {
-    //     let window = app.main_window();
-    //     let device = window.device();
-    //     // TODO: Render pass
-    //     state.redraw = false;
-    // }
 }
 
-fn update_egui(model: &mut Model, app: &App) {
+fn update_egui(model: &mut Model, _app: &App) {
     let ctx = model.egui.begin_frame();
     let state = &mut model.state;
 
@@ -130,23 +138,21 @@ fn update_egui(model: &mut Model, app: &App) {
             ui.checkbox(&mut state.continuous_redraw, "Continuous Redraw");
             ui.checkbox(&mut state.no_redraw, "No Redraw");
 
-            let update = ui.button("Update").clicked();
-            if update {
-                state.redraw = true;
+            if ui.button("Update").clicked() {
+                state.redraw.replace(true);
             }
 
-            let save = ui.button("Save").clicked();
-            if save {
-                state
-                    .image
-                    .save(get_save_path(&app.exe_name().unwrap()))
-                    .unwrap();
-            }
+            // TODO: Implement downloading image from GPU to CPU buffer
+            // if ui.button("Save").clicked() {
+            //     state
+            //         .image
+            //         .save(get_save_path(&app.exe_name().unwrap()))
+            //         .unwrap();
+            // }
         });
 }
 
 fn raw_window_event(_app: &App, model: &mut Model, event: &nannou::winit::event::WindowEvent) {
-    // Let egui handle things like keyboard and mouse input.
     model.egui.handle_raw_event(event);
 }
 
@@ -159,7 +165,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
             let new_x_range = shift(current_x_range, -shift_x);
             model.faraday_data.update_x_range(new_x_range);
             model.update_faraday_data.replace(true);
-            state.redraw = true;
+            state.redraw.replace(true);
         }
         Key::Right => {
             let current_x_range = model.faraday_data.get_x_range();
@@ -167,7 +173,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
             let new_x_range = shift(current_x_range, shift_x);
             model.faraday_data.update_x_range(new_x_range);
             model.update_faraday_data.replace(true);
-            state.redraw = true;
+            state.redraw.replace(true);
         }
         Key::Up => {
             let current_y_range = model.faraday_data.get_y_range();
@@ -175,7 +181,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
             let new_y_range = shift(current_y_range, -shift_y);
             model.faraday_data.update_y_range(new_y_range);
             model.update_faraday_data.replace(true);
-            state.redraw = true;
+            state.redraw.replace(true);
         }
         Key::Down => {
             let current_y_range = model.faraday_data.get_y_range();
@@ -183,7 +189,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
             let new_y_range = shift(current_y_range, shift_y);
             model.faraday_data.update_y_range(new_y_range);
             model.update_faraday_data.replace(true);
-            state.redraw = true;
+            state.redraw.replace(true);
         }
         Key::Plus | Key::Equals => {
             let zoom_factor = 1.0 - 10.0 * state.zoom_speed;
@@ -194,7 +200,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
             model.faraday_data.update_x_range(new_x_range);
             model.faraday_data.update_y_range(new_y_range);
             model.update_faraday_data.replace(true);
-            state.redraw = true;
+            state.redraw.replace(true);
         }
         Key::Minus => {
             let zoom_factor = 1.0 + 10.0 * state.zoom_speed;
@@ -205,15 +211,16 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
             model.faraday_data.update_x_range(new_x_range);
             model.faraday_data.update_y_range(new_y_range);
             model.update_faraday_data.replace(true);
-            state.redraw = true;
+            state.redraw.replace(true);
         }
         Key::Q => app.quit(),
-        Key::S => model
-            .state
-            .image
-            .save(get_save_path(&app.exe_name().unwrap()))
-            .unwrap(),
-        Key::Return => model.state.redraw = true,
+        // TODO: Implement downloading image from GPU to CPU buffer
+        // Key::S => model
+        //     .state
+        //     .image
+        //     .save(get_save_path(&app.exe_name().unwrap()))
+        //     .unwrap(),
+        Key::Return => drop(state.redraw.replace(true)),
         _other_key => {}
     }
 }
@@ -242,7 +249,7 @@ fn mouse_wheel(_app: &App, model: &mut Model, delta: MouseScrollDelta, _phase: T
     model.faraday_data.update_x_range(new_x_range);
     model.faraday_data.update_y_range(new_y_range);
     model.update_faraday_data.replace(true);
-    model.state.redraw = true;
+    state.redraw.replace(true);
 }
 
 fn mouse_moved(app: &App, model: &mut Model, pos: Point2) {
@@ -252,18 +259,4 @@ fn mouse_moved(app: &App, model: &mut Model, pos: Point2) {
     let x_percent = (pos.x + max_x) / width;
     let y_percent = (pos.y + max_y) / height;
     state.mouse_position = (x_percent as FloatChoice, y_percent as FloatChoice);
-}
-
-fn view(_app: &App, model: &Model, frame: Frame) {
-    let mut pipeline = model.pipeline.borrow_mut();
-
-    if *model.update_faraday_data.borrow() {
-        let device = frame.device_queue_pair().device();
-        let encoder = &mut frame.command_encoder();
-        pipeline.update_faraday_data(device, encoder, model.faraday_data);
-        model.update_faraday_data.replace(false);
-    }
-
-    pipeline.dispatch(&frame);
-    model.egui.draw_to_frame(&frame).unwrap();
 }

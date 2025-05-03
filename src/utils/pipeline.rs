@@ -109,27 +109,10 @@ impl GPUPipeline {
     /// # Arguments
     ///
     /// - `frame`: A reference to the frame being rendered.
-    pub fn dispatch(&mut self, frame: &Frame) {
-        let device = frame.device_queue_pair().device();
+    pub fn dispatch_compute(&self, frame: &Frame) {
         let mut encoder = frame.command_encoder();
+        let frame_size = frame.texture_size();
 
-        // If the window has changed size, recreate our depth texture to match.
-        if frame.texture_size() != self.texture.size() {
-            self.resize(device, frame.texture_size());
-        }
-
-        // Dispatch compute pass
-        self.dispatch_compute(&mut encoder, frame.texture_size());
-
-        // Step 2: Insert buffer barrier to sync compute output to render input
-        encoder.insert_debug_marker("Buffer Sync Barrier");
-
-        // Step 3: Dispatch render pass
-        self.dispatch_render(&mut encoder, frame);
-    }
-
-    /// Dispatches the compute pipeline for rendering.
-    fn dispatch_compute(&self, encoder: &mut wgpu::CommandEncoder, frame_size: [u32; 2]) {
         let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("Compute Pass"),
         });
@@ -146,17 +129,29 @@ impl GPUPipeline {
     }
 
     /// Dispatches the render pipeline for rendering.
-    fn dispatch_render(&self, encoder: &mut wgpu::CommandEncoder, frame: &Frame) {
+    ///
+    /// # Arguments
+    ///
+    /// - `frame`: A reference to the frame being rendered.
+    pub fn dispatch_render(&self, frame: &Frame) {
+        let mut encoder = frame.command_encoder();
+
         let mut render_pass = wgpu::RenderPassBuilder::new()
             .color_attachment(frame.texture_view(), |color| color)
-            .begin(encoder);
+            .begin(&mut encoder);
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, &self.render_bg, &[]);
         render_pass.draw(0..3, 0..1); // Draw the full-screen triangle
     }
 
-    /// Recreate the offscreen texture, its view, and both bind groups
-    /// whenever the window’s physical size changes.
+    /// If needed, recreates the texture, its view, and the bind groups
+    pub fn check_resize(&mut self, device: &wgpu::Device, new_size: [u32; 2]) {
+        if self.texture.size() != new_size {
+            self.resize(device, new_size);
+        }
+    }
+
+    /// Recreates the texture, its view, and the bind groups
     pub fn resize(&mut self, device: &wgpu::Device, new_size: [u32; 2]) {
         // Recreate the texture & view
         self.texture = Self::create_texture(device, new_size, self.texture.format());
