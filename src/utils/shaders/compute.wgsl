@@ -1,6 +1,7 @@
-// Bind group 0, binding 0: the storage texture we’ll write into.
 @group(0) @binding(0)
 var tex: texture_storage_2d<rgba32float, read_write>;
+@group(0) @binding(1)
+var<uniform> data: FaradayData;
 
 struct FaradayData {
     max_iter: u32,
@@ -10,11 +11,13 @@ struct FaradayData {
     y_range: vec2<f32>,
 };
 
-@group(0) @binding(1)
-var<uniform> data: FaradayData;
-
+// Aliases for types to quickly change the precision of the shader.
 alias float = f32;
 alias vec2float = vec2<f32>;
+
+// Tolerance for a function.
+// The pixel is part of the function if its y coordinate is within this tolerance of the function value.
+const fx_tolerance = 0.1;
 
 @compute @workgroup_size(16, 16)
 fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -35,9 +38,85 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let x = mix(data.x_range[0], data.x_range[1], uv.x);
     let y = mix(data.y_range[0], data.y_range[1], uv.y);
 
-    let color = mandelbrot(x, y);
+    // Compute one-pixel sizes in world space:
+    let dx = (data.x_range[1] - data.x_range[0]) / float(dims.x);
+    let dy = (data.y_range[1] - data.y_range[0]) / float(dims.y);
+
+    // let color = mandelbrot(x, y);
+    let color = math_fn(x, y, dx, dy);
 
     textureStore(tex, vec2<i32>(gid.xy), color);
+}
+
+// We’ll sample f(x ± h) to approximate f′(x):
+fn f(x: float) -> float {
+    return -x * cos(sin(10.0 * x) * x);
+}
+
+fn math_fn(x: float, y: float, dx: float, dy: float) -> vec4<f32> {
+    // Sample f at center and pixel edges
+    let fx = f(x);
+    let fL = f(x - 0.5 * dx);
+    let fR = f(x + 0.5 * dx);
+
+    // Approximate derivative
+    let fpx   = (fR - fL) / dx;
+
+    // Compute perpendicular distance 'd' from pixel center to curve,
+    // normalized by pixel height:
+    let d = abs(y - fx) / sqrt(1.0 + fpx * fpx);
+
+    // True half-pixel distance to the curve in y-direction:
+    let half_pixel = 0.5 * dy;
+    let inside = d <= half_pixel;
+
+    // Sign‐crossing test (catches vertical passes)
+    // cross = (y - fL) and (y - fR) have opposite signs
+    let left_above = (y - fL) > 0.0;
+    let right_above = (y - fR) > 0.0;
+    let cross_ok = left_above != right_above;
+
+    // Smooth antialias alpha
+    // Antialiased alpha: 1.0 at center, 0.0 beyond half-pixel:
+    let alpha = clamp(1.0 - d / (0.5 * dy), 0.0, 1.0);
+    let raw_alpha = clamp((half_pixel - d) / half_pixel, 0.0, 1.0);
+
+    // Combine hard mask + smooth edge:
+    let hard_mask = inside || cross_ok;
+    let final_alpha = select(raw_alpha, 1.0, hard_mask);
+
+    // Blend white->black by final_alpha:
+    let bg = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+    let fg = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    return mix(bg, fg, final_alpha);
+}
+
+fn math_fn_original(x: float, y: float, dx: float, dy: float) -> vec4<f32> {
+    // Evaluate f and approximate its derivative:
+    let fx = f(x);
+    let fpx = (f(x + 0.5 * dx) - f(x - 0.5 * dx)) / (dx);
+    let fpx2 = fpx * fpx;
+
+    // True half-pixel distance to the curve in y-direction:
+    let half_dist = 0.5 * dy * sqrt(1.0 + fpx2);
+    let inside = abs(y - fx) <= half_dist;
+
+    // Smooth antialias alpha
+    // Compute perpendicular distance 'd' from pixel center to curve,
+    // normalized by pixel height:
+    let d = abs(y - fx) / sqrt(1.0 + fpx2);
+
+    // Antialiased alpha: 1.0 at center, 0.0 beyond half-pixel:
+    let alpha = clamp(1.0 - d / (0.5 * dy), 0.0, 1.0);
+
+    // Blend between white background and black curve:
+    let bg = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+    let fg = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+
+    // Choose either full fg (inside) or bg (outside)
+    let hard = select(bg, fg, inside);
+    // Mix the two colors based on alpha
+    return mix(hard, fg, alpha);
 }
 
 
