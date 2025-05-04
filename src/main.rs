@@ -18,8 +18,6 @@ const MAX_ZOOM_DELTA: f32 = 1e-5;
 type FloatChoice = f32;
 
 struct State {
-    /// Indicates whether the image needs to be recomputed.
-    needs_compute: RefCell<bool>,
     /// Whether to compute the image continuously or not.
     continuous_compute: bool,
     /// Relative position of the mouse as a percentage of the function range.
@@ -38,7 +36,6 @@ struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
-            needs_compute: true.into(),
             continuous_compute: false,
             prev_drag_pos: (0.0, 0.0),
             dragging: false,
@@ -54,7 +51,10 @@ struct Model {
     state: State,
     pipeline: RefCell<GPUPipeline>,
     faraday_data: FaradayData,
+    /// Indicates whether the faraday data needs to be updated.
     update_faraday_data: RefCell<bool>,
+    /// Indicates whether the image needs to be recomputed.
+    needs_compute: RefCell<bool>,
 }
 
 fn main() {
@@ -103,6 +103,7 @@ fn model(app: &App) -> Model {
         pipeline: pipeline.into(),
         faraday_data,
         update_faraday_data: false.into(),
+        needs_compute: true.into(),
     }
 }
 
@@ -120,7 +121,7 @@ fn view(_app: &App, model: &Model, frame: Frame) {
 fn update(app: &App, model: &mut Model, update: Update) {
     // Check if the we need to redraw the frame
     let state = &model.state;
-    if *state.needs_compute.borrow() || state.continuous_compute {
+    if *model.needs_compute.borrow() || state.continuous_compute {
         let mut pipeline = model.pipeline.borrow_mut();
         let window = app.main_window();
         let (device, queue) = {
@@ -147,7 +148,7 @@ fn update(app: &App, model: &mut Model, update: Update) {
         let cmd_buf = encoder.finish();
         queue.submit(Some(cmd_buf));
 
-        state.needs_compute.replace(false);
+        model.needs_compute.replace(false);
     }
 
     // Update egui
@@ -169,12 +170,39 @@ fn update_egui(model: &mut Model, _app: &App) {
             ui.label("Shift speed:");
             ui.add(egui::Slider::new(&mut state.shift_speed, 10..=100));
 
+            ui.label("Max iterations:");
+            let old_max_iterations = model.faraday_data.max_iter;
+            ui.add(egui::Slider::new(
+                &mut model.faraday_data.max_iter,
+                200..=2000,
+            ));
+            if old_max_iterations != model.faraday_data.max_iter {
+                model.update_faraday_data.replace(true);
+                model.needs_compute.replace(true);
+            }
+
+            ui.label("dt:");
+            let old_dt = model.faraday_data.dt;
+            ui.add(egui::Slider::new(&mut model.faraday_data.dt, 0.01..=1.0));
+            if old_dt != model.faraday_data.dt {
+                model.update_faraday_data.replace(true);
+                model.needs_compute.replace(true);
+            }
+
+            ui.label("mu:");
+            let old_mu = model.faraday_data.mu;
+            ui.add(egui::Slider::new(&mut model.faraday_data.mu, 0.0..=10.0));
+            if old_mu != model.faraday_data.mu {
+                model.update_faraday_data.replace(true);
+                model.needs_compute.replace(true);
+            }
+
             ui.separator();
 
             ui.checkbox(&mut state.continuous_compute, "Continuous Redraw");
 
             if ui.button("Update").clicked() {
-                state.needs_compute.replace(true);
+                model.needs_compute.replace(true);
             }
 
             // TODO: Implement downloading image from GPU to CPU buffer
@@ -196,7 +224,7 @@ fn resized(app: &App, model: &mut Model, dim: Vec2) {
     pipeline.resize(device, [dim.x as u32 * 2, dim.y as u32 * 2]);
 
     // Signify that we need to redraw the frame.
-    model.state.needs_compute.replace(true);
+    model.needs_compute.replace(true);
 }
 
 fn raw_window_event(_app: &App, model: &mut Model, event: &nannou::winit::event::WindowEvent) {
@@ -212,7 +240,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
             let new_x_range = shift(current_x_range, -shift_x);
             model.faraday_data.update_x_range(new_x_range);
             model.update_faraday_data.replace(true);
-            state.needs_compute.replace(true);
+            model.needs_compute.replace(true);
         }
         Key::Right => {
             let current_x_range = model.faraday_data.get_x_range();
@@ -220,7 +248,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
             let new_x_range = shift(current_x_range, shift_x);
             model.faraday_data.update_x_range(new_x_range);
             model.update_faraday_data.replace(true);
-            state.needs_compute.replace(true);
+            model.needs_compute.replace(true);
         }
         Key::Up => {
             let current_y_range = model.faraday_data.get_y_range();
@@ -228,7 +256,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
             let new_y_range = shift(current_y_range, shift_y);
             model.faraday_data.update_y_range(new_y_range);
             model.update_faraday_data.replace(true);
-            state.needs_compute.replace(true);
+            model.needs_compute.replace(true);
         }
         Key::Down => {
             let current_y_range = model.faraday_data.get_y_range();
@@ -236,7 +264,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
             let new_y_range = shift(current_y_range, -shift_y);
             model.faraday_data.update_y_range(new_y_range);
             model.update_faraday_data.replace(true);
-            state.needs_compute.replace(true);
+            model.needs_compute.replace(true);
         }
         Key::Plus | Key::Equals => {
             let zoom_factor = 1.0 - 10.0 * state.zoom_speed;
@@ -247,7 +275,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
             model.faraday_data.update_x_range(new_x_range);
             model.faraday_data.update_y_range(new_y_range);
             model.update_faraday_data.replace(true);
-            state.needs_compute.replace(true);
+            model.needs_compute.replace(true);
         }
         Key::Minus => {
             let zoom_factor = 1.0 + 10.0 * state.zoom_speed;
@@ -258,7 +286,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
             model.faraday_data.update_x_range(new_x_range);
             model.faraday_data.update_y_range(new_y_range);
             model.update_faraday_data.replace(true);
-            state.needs_compute.replace(true);
+            model.needs_compute.replace(true);
         }
         Key::Q => app.quit(),
         // TODO: Implement downloading image from GPU to CPU buffer
@@ -267,7 +295,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
         //     .image
         //     .save(get_save_path(&app.exe_name().unwrap()))
         //     .unwrap(),
-        Key::Return => drop(state.needs_compute.replace(true)),
+        Key::Return => drop(model.needs_compute.replace(true)),
         _other_key => {}
     }
 }
@@ -302,7 +330,7 @@ fn mouse_wheel(_app: &App, model: &mut Model, delta: MouseScrollDelta, _phase: T
     model.faraday_data.update_x_range(new_x_range);
     model.faraday_data.update_y_range(new_y_range);
     model.update_faraday_data.replace(true);
-    state.needs_compute.replace(true);
+    model.needs_compute.replace(true);
 }
 
 fn mouse_moved(app: &App, model: &mut Model, pos: Point2) {
@@ -338,7 +366,7 @@ fn mouse_moved(app: &App, model: &mut Model, pos: Point2) {
 
         // Flag to recompute and update uniforms
         model.update_faraday_data.replace(true);
-        state.needs_compute.replace(true);
+        model.needs_compute.replace(true);
 
         // Remember this pos for the next delta
         state.prev_drag_pos = state.mouse_pos;

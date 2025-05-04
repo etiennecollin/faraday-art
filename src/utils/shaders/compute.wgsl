@@ -3,17 +3,18 @@ var tex: texture_storage_2d<rgba32float, read_write>;
 @group(0) @binding(1)
 var<uniform> data: FaradayData;
 
-struct FaradayData {
-    max_iter: u32,
-    num_particles: u32,
-    _padding: vec2<u32>,
-    x_range: vec2<f32>,
-    y_range: vec2<f32>,
-};
-
 // Aliases for types to quickly change the precision of the shader.
 alias float = f32;
 alias vec2float = vec2<f32>;
+
+struct FaradayData {
+    max_iter: u32,
+    num_particles: u32,
+    dt: float,
+    mu: float,
+    x_range: vec2float,
+    y_range: vec2float,
+};
 
 // Tolerance for a function.
 // The pixel is part of the function if its y coordinate is within this tolerance of the function value.
@@ -42,8 +43,9 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let dx = (data.x_range[1] - data.x_range[0]) / float(dims.x);
     let dy = (data.y_range[1] - data.y_range[0]) / float(dims.y);
 
-    let color = mandelbrot(vec2float(x, y));
+    // let color = mandelbrot(vec2float(x, y));
     // let color = math_fn(x, y, dx, dy, 3.0);
+    let color = van_der_pol(vec2<f32>(x, y));
 
     textureStore(tex, vec2<i32>(gid.xy), color);
 }
@@ -155,4 +157,43 @@ fn hsv2rgb(h: f32, s: f32, v: f32) -> vec3f {
     }
     let m = v - c;
     return rgb + vec3<f32>(m);
+}
+
+fn step_vdp(z: vec2<f32>) -> vec2<f32> {
+    // z.x = x, z.y = y
+    let x = z.x;
+    let y = z.y;
+    // dx/dt = y
+    // dy/dt = mu * (1 - x^2) * y - x
+    return vec2<f32>(
+        y,
+        data.mu * (1.0 - x * x) * y - x
+    );
+}
+
+fn van_der_pol(initial: vec2<f32>) -> vec4<f32> {
+    var z = initial;
+    var iter: u32 = 0u;
+    while (iter < data.max_iter) {
+        // Single Euler step (feel free to swap in RK4 for more accuracy)
+        let dz = step_vdp(z);
+        z = z + data.dt * dz;
+
+        // divergence test
+        if (dot(z, z) > 200.0) {
+            break;
+        }
+
+        iter = iter + 1u;
+    }
+
+    // map iteration to grayscale
+    var shade: f32;
+    if (iter == data.max_iter) {
+        // never diverged → black
+        shade = 0.0;
+    } else {
+        shade = f32(iter) / f32(data.max_iter);
+    }
+    return vec4<f32>(shade, shade, shade, 1.0);
 }

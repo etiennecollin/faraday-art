@@ -10,7 +10,8 @@ use nannou::wgpu;
 pub struct FaradayData {
     pub max_iter: u32,
     pub num_particles: u32,
-    _padding: [u32; 2],
+    pub dt: f32,
+    pub mu: f32,
     /// Initial render range in x for function
     x_range: [f32; 2],
     /// Initial render range in y for function
@@ -22,7 +23,8 @@ impl Default for FaradayData {
         Self {
             max_iter: 100,
             num_particles: 20_000,
-            _padding: [0; 2],
+            dt: 0.1,
+            mu: 4.5,
             x_range: [-2.0, 0.50],
             y_range: [-1.25, 1.25],
         }
