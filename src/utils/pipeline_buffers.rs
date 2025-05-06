@@ -62,21 +62,23 @@ impl FaradayData {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct GlobalData {
-    pub value_min: u32,
-    pub value_max: u32,
-    pub histogram_n: u32,
-    pub histogram: [u32; 256],
-    pub cdf_threshold: f32,
-    pub cdf: [f32; 256],
+    value_min: f32,
+    value_max: f32,
+    histogram_n: u32,
+    histogram: [u32; 256],
+    cdf_threshold: f32,
+    cdf_non_zero: f32,
+    cdf: [f32; 256],
 }
 impl Default for GlobalData {
     fn default() -> Self {
         Self {
-            value_min: u32::MAX,
-            value_max: 0,
+            value_min: f32::MAX,
+            value_max: 0.0,
             histogram_n: 0,
             histogram: [0; 256],
             cdf_threshold: 0.0,
+            cdf_non_zero: 0.0,
             cdf: [0.0; 256],
         }
     }

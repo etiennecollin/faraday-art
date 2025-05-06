@@ -4,7 +4,8 @@ struct GlobalData {
     histogram_n: atomic<u32>,
     histogram: array<atomic<u32>, 256>, // Bitcast from f32
     cdf_threshold: f32,
-    cdf: array<atomic<u32>, 256>, // Bitcast from f32
+    cdf_non_zero: f32,
+    cdf: array<f32, 256>,
 };
 
 @group(0) @binding(0)
@@ -28,11 +29,11 @@ fn cs_min_max(
 
     // Compute a scalar luminance/brightness from RGB
     let color = textureLoad(tex, vec2<u32>(gid.xy));
-    let v = get_luminance(color);
+    let lum = get_luminance(color);
 
     // Write local
-    local_mins[lidx] = v;
-    local_maxs[lidx] = v;
+    local_mins[lidx] = lum;
+    local_maxs[lidx] = lum;
 
     // Wait for all workgroup threads to write their local min/max
     workgroupBarrier();
@@ -119,12 +120,21 @@ fn cs_cdf(
 ) {
     // Compute the CDF
     let n = atomicLoad(&gdata.histogram_n);
-    let n_inverse = select(1.0, 1.0 / f32(n), n > 0u);
-    for (var i = 1u; i < 256u; i = i + 1u) {
-        let cdf_prev = bitcast<f32>(atomicLoad(&gdata.cdf[i - 1u]));
+    let n_inverse = select(0.0, 1.0 / f32(n), n > 0u);
+
+    var cumulative = 0.0;
+    var first_non_zero = -1.0;
+    for (var i = 0u; i < 256u; i = i + 1u) {
         let h = f32(atomicLoad(&gdata.histogram[i]));
-        atomicStore(&gdata.cdf[i], bitcast<u32>(cdf_prev + h * n_inverse));
+        cumulative = cumulative + h * n_inverse;
+        gdata.cdf[i] = cumulative;
+
+        // Capture the first non-zero cumulative value
+        if (first_non_zero < 0.0 && cumulative > 0.0) {
+            first_non_zero = cumulative;
+        }
     }
+    gdata.cdf_non_zero = first_non_zero;
 }
 
 @compute @workgroup_size(16, 16)
@@ -139,14 +149,21 @@ fn cs_equalize(
 
     let color = textureLoad(tex, vec2<u32>(gid.xy));
 
-    // Equalize the pixel
-    let rgb_bin = vec3<u32>(color.rgb * 255.0);
-    let r = bitcast<f32>(atomicLoad(&gdata.cdf[rgb_bin.r]));
-    let g = bitcast<f32>(atomicLoad(&gdata.cdf[rgb_bin.g]));
-    let b = bitcast<f32>(atomicLoad(&gdata.cdf[rgb_bin.b]));
+    // Compute bin index
+    let lum = get_luminance(color);
+    let bin = u32(clamp(lum * 255.0, 0.0, 255.0));
 
-    // Store the equalized color
-    textureStore(tex, vec2<u32>(gid.xy), vec4<f32>(r, g, b, color.a));
+    // Read the precomputed CDF
+    let mapped = gdata.cdf[bin];
+    let cdfv = gdata.cdf[bin]; // in [0,1]
+    let cdf_min = gdata.cdf_threshold; // cdf_min > 0
+    let denom = max(1.0 - cdf_min, 1e-6); // avoid div0
+    let equalized = clamp((cdfv - cdf_min) / denom, 0.0, 1.0);
+
+    // Rescale RGB
+    let scale = mapped / max(lum, 1e-6);
+    let rgb = clamp(color.rgb * scale, vec3<f32>(0.0), vec3<f32>(1.0));
+    textureStore(tex, vec2<i32>(gid.xy), vec4<f32>(rgb, color.a));
 }
 
 fn get_luminance(color: vec4<f32>) -> f32 {
@@ -155,4 +172,3 @@ fn get_luminance(color: vec4<f32>) -> f32 {
     // Alternatively, for perceptual luminance:
     return dot(color.rgb, vec3<f32>(0.299, 0.587, 0.114));
 }
-

@@ -40,12 +40,13 @@ fn cs_main(
     let dx = (fdata.x_range[1] - fdata.x_range[0]) / float(dims.x);
     let dy = (fdata.y_range[1] - fdata.y_range[0]) / float(dims.y);
 
-    // var color = mandelbrot(vec2float(x, y));
-    // var color = math_fn(x, y, dx, dy, 3.0);
-    var color = van_der_pol(vec2<f32>(x, y));
+    let color = mandelbrot(vec2float(x, y));
+    // let color = math_fn(x, y, dx, dy, 3.0);
+    // let color = van_der_pol(vec2<f32>(x, y));
 
     textureStore(tex, vec2<u32>(gid.xy), color);
 }
+
 // We’ll sample f(x ± h) to approximate f′(x):
 fn f(x: float) -> float {
     return -x * cos(exp(sin(10.0 * x)) * x);
@@ -117,28 +118,28 @@ fn mandelbrot(z_initial: vec2float) -> vec4<f32> {
         iter = iter + 1u;
     }
 
-    // Color based on iteration count
-    var shade: f32;
-    if iter == fdata.max_iter {
-        shade = 0.0;
-    } else {
-        // Normalize the iteration count to [0.0, 1.0]
-        shade = f32(iter) / f32(fdata.max_iter);
-    }
-    return vec4<f32>(shade, shade, shade, 1.0);
-
-
-    // Color based on iteration count
-    // let h = f32(iter) / f32(fdata.max_iter);
-    // let s = 1.0;
-    // var v: f32;
+    // Color (BW) based on iteration count
+    // var shade: f32;
     // if iter == fdata.max_iter {
-    //     v = 0.0;
+    //     shade = 0.0;
     // } else {
     //     // Normalize the iteration count to [0.0, 1.0]
-    //     v = 1.0;
+    //     shade = f32(iter) / f32(fdata.max_iter);
     // }
-    // return vec4<f32>(hsv2rgb(h, s, v), 1.0);
+    // return vec4<f32>(shade, shade, shade, 1.0);
+
+
+    // Color (RGB) based on iteration count
+    let h = f32(iter) / f32(fdata.max_iter);
+    let s = 1.0;
+    var v: f32;
+    if iter == fdata.max_iter {
+        v = 0.0;
+    } else {
+        // Normalize the iteration count to [0.0, 1.0]
+        v = 1.0;
+    }
+    return vec4<f32>(hsv2rgb(h, s, v), 1.0);
 }
 
 fn hsv2rgb(h: f32, s: f32, v: f32) -> vec3f {
