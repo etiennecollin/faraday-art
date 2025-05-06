@@ -27,7 +27,7 @@ fn cs_main(
 
     // Sample at pixel centers
     let dims_f = vec2float(dims);
-    var uv = (vec2float(gid.xy) + vec2float(0.5, 0.5)) / dims_f;
+    var uv = (vec2float(gid.xy) + vec2float(float(0.5), float(0.5))) / dims_f;
     uv.y = float(1.0) - uv.y; // Flip Y
 
     // Get x/y in "math" space
