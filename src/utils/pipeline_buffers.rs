@@ -10,7 +10,7 @@ use crate::FloatChoice;
 pub struct FaradayData {
     pub max_iter: u32,
     pub num_particles: u32,
-    _padding: [u32; 2],
+    _padding: [u32; 2], // Needed to align the vec2<f64> to 16 bytes
     pub dt: FloatChoice,
     pub mu: FloatChoice,
     /// Initial render range in x for function
