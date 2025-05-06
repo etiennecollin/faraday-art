@@ -1,8 +1,3 @@
-@group(0) @binding(0)
-var tex: texture_storage_2d<rgba32float, read_write>;
-@group(0) @binding(1)
-var<uniform> data: FaradayData;
-
 // Aliases for types to quickly change the precision of the shader.
 alias float = f32;
 alias vec2float = vec2<f32>;
@@ -16,15 +11,17 @@ struct FaradayData {
     y_range: vec2float,
 };
 
-// Tolerance for a function.
-// The pixel is part of the function if its y coordinate is within this tolerance of the function value.
-const fx_tolerance = 0.1;
+@group(0) @binding(0)
+var tex: texture_storage_2d<rgba32float, read_write>;
+@group(0) @binding(1)
+var<uniform> fdata: FaradayData;
 
 @compute @workgroup_size(16, 16)
-fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let dims = textureDimensions(tex);
-
+fn cs_main(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+) {
     // Ensure the invocation is within bounds
+    let dims = textureDimensions(tex);
     if (gid.x >= dims.x || gid.y >= dims.y) {
         return;
     }
@@ -36,20 +33,19 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     );
 
     // Linearly interpolate position in x and y ranges
-    let x = mix(data.x_range[0], data.x_range[1], uv.x);
-    let y = mix(data.y_range[0], data.y_range[1], uv.y);
+    let x = mix(fdata.x_range[0], fdata.x_range[1], uv.x);
+    let y = mix(fdata.y_range[0], fdata.y_range[1], uv.y);
 
     // Compute one-pixel sizes in world space:
-    let dx = (data.x_range[1] - data.x_range[0]) / float(dims.x);
-    let dy = (data.y_range[1] - data.y_range[0]) / float(dims.y);
+    let dx = (fdata.x_range[1] - fdata.x_range[0]) / float(dims.x);
+    let dy = (fdata.y_range[1] - fdata.y_range[0]) / float(dims.y);
 
-    // let color = mandelbrot(vec2float(x, y));
-    // let color = math_fn(x, y, dx, dy, 3.0);
-    let color = van_der_pol(vec2<f32>(x, y));
+    // var color = mandelbrot(vec2float(x, y));
+    // var color = math_fn(x, y, dx, dy, 3.0);
+    var color = van_der_pol(vec2<f32>(x, y));
 
-    textureStore(tex, vec2<i32>(gid.xy), color);
+    textureStore(tex, vec2<u32>(gid.xy), color);
 }
-
 // We’ll sample f(x ± h) to approximate f′(x):
 fn f(x: float) -> float {
     return -x * cos(exp(sin(10.0 * x)) * x);
@@ -104,7 +100,7 @@ fn mandelbrot(z_initial: vec2float) -> vec4<f32> {
     var iter = 0u;
 
     loop {
-        if iter >= data.max_iter {
+        if iter >= fdata.max_iter {
             break;
         }
 
@@ -121,20 +117,28 @@ fn mandelbrot(z_initial: vec2float) -> vec4<f32> {
         iter = iter + 1u;
     }
 
-
     // Color based on iteration count
-    let h = f32(iter) / f32(data.max_iter);
-    let s = 1.0;
-    var v: f32;
-    if iter == data.max_iter {
-        v = 0.0;
+    var shade: f32;
+    if iter == fdata.max_iter {
+        shade = 0.0;
     } else {
         // Normalize the iteration count to [0.0, 1.0]
-        v = 1.0;
+        shade = f32(iter) / f32(fdata.max_iter);
     }
+    return vec4<f32>(shade, shade, shade, 1.0);
 
-    let rgb = hsv2rgb(h, s, v);
-    return vec4<f32>(rgb, 1.0);
+
+    // Color based on iteration count
+    // let h = f32(iter) / f32(fdata.max_iter);
+    // let s = 1.0;
+    // var v: f32;
+    // if iter == fdata.max_iter {
+    //     v = 0.0;
+    // } else {
+    //     // Normalize the iteration count to [0.0, 1.0]
+    //     v = 1.0;
+    // }
+    // return vec4<f32>(hsv2rgb(h, s, v), 1.0);
 }
 
 fn hsv2rgb(h: f32, s: f32, v: f32) -> vec3f {
@@ -167,17 +171,17 @@ fn step_vdp(z: vec2<f32>) -> vec2<f32> {
     // dy/dt = mu * (1 - x^2) * y - x
     return vec2<f32>(
         y,
-        data.mu * (1.0 - x * x) * y - x
+        fdata.mu * (1.0 - x * x) * y - x
     );
 }
 
 fn van_der_pol(initial: vec2<f32>) -> vec4<f32> {
     var z = initial;
     var iter: u32 = 0u;
-    while (iter < data.max_iter) {
+    while (iter < fdata.max_iter) {
         // Single Euler step (feel free to swap in RK4 for more accuracy)
         let dz = step_vdp(z);
-        z = z + data.dt * dz;
+        z = z + fdata.dt * dz;
 
         // divergence test
         if (dot(z, z) > 200.0) {
@@ -189,11 +193,11 @@ fn van_der_pol(initial: vec2<f32>) -> vec4<f32> {
 
     // map iteration to grayscale
     var shade: f32;
-    if (iter == data.max_iter) {
+    if (iter == fdata.max_iter) {
         // never diverged → black
         shade = 0.0;
     } else {
-        shade = f32(iter) / f32(data.max_iter);
+        shade = f32(iter) / f32(fdata.max_iter);
     }
     return vec4<f32>(shade, shade, shade, 1.0);
 }

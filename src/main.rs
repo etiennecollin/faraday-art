@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use faraday_art::utils::{faraday::*, math::*, pipeline::GPUPipeline};
+use faraday_art::utils::{math::*, pipeline::GPUPipeline, pipeline_buffers::FaradayData};
 use nannou::prelude::*;
 use nannou_egui::{
     Egui,
@@ -142,11 +142,10 @@ fn update(app: &App, model: &mut Model, update: Update) {
 
         // Dispatch the compute pipeline
         let (width, height) = app.main_window().inner_size_pixels();
-        pipeline.dispatch_compute(&mut encoder, [width, height]);
+        pipeline.dispatch_compute(&mut encoder, queue, [width, height]);
 
         // Submit the command buffer
-        let cmd_buf = encoder.finish();
-        queue.submit(Some(cmd_buf));
+        queue.submit(Some(encoder.finish()));
 
         model.needs_compute.replace(false);
     }

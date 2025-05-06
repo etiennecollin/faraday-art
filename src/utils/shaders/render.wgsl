@@ -25,9 +25,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
 fn fs_main(
     @builtin(position) pos: vec4<f32>
 ) -> @location(0) vec4<f32> {
-    // pos.xy is in window pixels; cast to ivec2 for textureLoad.
-    let coord = vec2<i32>(pos.xy);
     // Fetch the generated gradient texel.
-    return textureLoad(src_tex, coord, 0);
+    return textureLoad(src_tex, vec2<u32>(pos.xy), 0);
 }
 

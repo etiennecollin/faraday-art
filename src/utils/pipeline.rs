@@ -2,15 +2,24 @@ use std::cell::RefMut;
 
 use nannou::prelude::*;
 
-use super::faraday::FaradayData;
+use super::pipeline_buffers::{FaradayData, GlobalData};
 
 pub struct GPUPipeline {
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
     faraday_data_buffer: wgpu::Buffer,
+    global_data_buffer: wgpu::Buffer,
+    // Generate texture
     compute_bgl: wgpu::BindGroupLayout,
     compute_bg: wgpu::BindGroup,
     compute_pipeline: wgpu::ComputePipeline,
+    // Post-processing
+    min_max_pipeline: wgpu::ComputePipeline,
+    recalibrate_pipeline: wgpu::ComputePipeline,
+    histogram_pipeline: wgpu::ComputePipeline,
+    cdf_pipeline: wgpu::ComputePipeline,
+    equalize_pipeline: wgpu::ComputePipeline,
+    // Render
     render_bgl: wgpu::BindGroupLayout,
     render_bg: wgpu::BindGroup,
     render_pipeline: wgpu::RenderPipeline,
@@ -32,11 +41,14 @@ impl GPUPipeline {
         let device = window.device();
         let msaa_samples = window.msaa_samples();
         let (width, height) = window.inner_size_pixels();
+        let global_data = GlobalData::default();
 
         // Load shader
         let compute_shader =
             device.create_shader_module(wgpu::include_wgsl!("shaders/compute.wgsl"));
         let render_shader = device.create_shader_module(wgpu::include_wgsl!("shaders/render.wgsl"));
+        let post_processing_shader =
+            device.create_shader_module(wgpu::include_wgsl!("shaders/post_processing.wgsl"));
 
         // Create texture
         let texture =
@@ -50,10 +62,21 @@ impl GPUPipeline {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
+        let global_data_buffer = device.create_buffer_init(&wgpu::BufferInitDescriptor {
+            label: Some("Global Data Buffer"),
+            contents: global_data.as_bytes(),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
         // Create the compute bind group
         let compute_bgl = Self::create_compute_bgl(device, &texture);
-        let compute_bg =
-            Self::create_compute_bg(device, &compute_bgl, &texture_view, &faraday_data_buffer);
+        let compute_bg = Self::create_compute_bg(
+            device,
+            &compute_bgl,
+            &texture_view,
+            &faraday_data_buffer,
+            &global_data_buffer,
+        );
 
         // Create the compute pipeline
         let compute_pipeline_layout =
@@ -67,6 +90,42 @@ impl GPUPipeline {
             layout: Some(&compute_pipeline_layout),
             module: &compute_shader,
             entry_point: "cs_main",
+        });
+
+        let min_max_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Min/Max Compute Pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &post_processing_shader,
+            entry_point: "cs_min_max",
+        });
+
+        let recalibrate_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Recalibrate Compute Pipeline"),
+                layout: Some(&compute_pipeline_layout),
+                module: &post_processing_shader,
+                entry_point: "cs_recalibrate",
+            });
+
+        let histogram_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Histogram Compute Pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &post_processing_shader,
+            entry_point: "cs_histogram",
+        });
+
+        let cdf_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("CDF Compute Pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &post_processing_shader,
+            entry_point: "cs_cdf",
+        });
+
+        let equalize_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Equalize Compute Pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &post_processing_shader,
+            entry_point: "cs_equalize",
         });
 
         // Create the render bind group
@@ -99,9 +158,18 @@ impl GPUPipeline {
             texture,
             texture_view,
             faraday_data_buffer,
+            global_data_buffer,
+            // Generate texture
             compute_bgl,
             compute_bg,
             compute_pipeline,
+            // Post-processing
+            min_max_pipeline,
+            recalibrate_pipeline,
+            histogram_pipeline,
+            cdf_pipeline,
+            equalize_pipeline,
+            // Render
             render_bgl,
             render_bg,
             render_pipeline,
@@ -115,20 +183,63 @@ impl GPUPipeline {
     /// - `encoder`: A mutable reference to the command encoder used for rendering.
     /// - `frame_size`: The size of the frame to be rendered. This is used to set
     ///   the workgroup size for the compute shader.
-    pub fn dispatch_compute(&self, encoder: &mut wgpu::CommandEncoder, frame_size: [u32; 2]) {
-        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("Compute Pass"),
-        });
-        compute_pass.set_pipeline(&self.compute_pipeline);
-        compute_pass.set_bind_group(0, &self.compute_bg, &[]);
-
-        // Set workgroup size
+    pub fn dispatch_compute(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        queue: &wgpu::Queue,
+        frame_size: [u32; 2],
+    ) {
         let (w, h) = (frame_size[0], frame_size[1]);
-        compute_pass.dispatch_workgroups(
-            w.div_ceil(Self::WORKGROUP_SIZE),
-            h.div_ceil(Self::WORKGROUP_SIZE),
-            1,
+        let dispatch_x = w.div_ceil(Self::WORKGROUP_SIZE);
+        let dispatch_y = h.div_ceil(Self::WORKGROUP_SIZE);
+
+        // Generate texture
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Compute Pass"),
+            });
+            pass.set_pipeline(&self.compute_pipeline);
+            pass.set_bind_group(0, &self.compute_bg, &[]);
+            pass.dispatch_workgroups(dispatch_x, dispatch_y, 1);
+        }
+
+        // Clear global data buffer
+        queue.write_buffer(
+            &self.global_data_buffer,
+            0,
+            GlobalData::default().as_bytes(),
         );
+
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Get Post-Processing Pass"),
+            });
+
+            // Get min/max of texture
+            pass.set_pipeline(&self.min_max_pipeline);
+            pass.set_bind_group(0, &self.compute_bg, &[]);
+            pass.dispatch_workgroups(dispatch_x, dispatch_y, 1);
+
+            // Recalibrate texture
+            pass.set_pipeline(&self.recalibrate_pipeline);
+            pass.set_bind_group(0, &self.compute_bg, &[]);
+            pass.dispatch_workgroups(dispatch_x, dispatch_y, 1);
+
+            // Generate histogram
+            pass.set_pipeline(&self.histogram_pipeline);
+            pass.set_bind_group(0, &self.compute_bg, &[]);
+            pass.dispatch_workgroups(dispatch_x, dispatch_y, 1);
+
+            // Generate CDF
+            pass.set_pipeline(&self.cdf_pipeline);
+            pass.set_bind_group(0, &self.compute_bg, &[]);
+            pass.dispatch_workgroups(1, 1, 1);
+
+            // Equalize texture
+            pass.set_pipeline(&self.equalize_pipeline);
+            pass.set_bind_group(0, &self.compute_bg, &[]);
+            pass.dispatch_workgroups(dispatch_x, dispatch_y, 1);
+        }
     }
 
     /// Dispatches the render pipeline for rendering.
@@ -171,6 +282,7 @@ impl GPUPipeline {
             &self.compute_bgl,
             &self.texture_view,
             &self.faraday_data_buffer,
+            &self.global_data_buffer,
         );
 
         // Rebuild the render bind group
@@ -235,6 +347,7 @@ impl GPUPipeline {
                 wgpu::StorageTextureAccess::ReadWrite,
             )
             .uniform_buffer(wgpu::ShaderStages::COMPUTE, false)
+            .storage_buffer(wgpu::ShaderStages::COMPUTE, false, false)
             .build(device)
     }
 
@@ -244,10 +357,12 @@ impl GPUPipeline {
         compute_bgl: &wgpu::BindGroupLayout,
         texture_view: &wgpu::TextureView,
         faraday_data_buffer: &wgpu::Buffer,
+        global_data_buffer: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         wgpu::BindGroupBuilder::new()
             .texture_view(texture_view)
             .binding(faraday_data_buffer.as_entire_binding())
+            .binding(global_data_buffer.as_entire_binding())
             .build(device, compute_bgl)
     }
 
