@@ -1,7 +1,10 @@
 use std::cell::RefCell;
 
-use faraday_art::utils::{math::*, pipeline::GPUPipeline, pipeline_buffers::FaradayData};
-use nannou::prelude::*;
+use faraday_art::{
+    get_save_path,
+    utils::{math::*, pipeline::GPUPipeline, pipeline_buffers::FaradayData},
+};
+use nannou::{image::ImageBuffer, prelude::*};
 use nannou_egui::{
     Egui,
     egui::{self},
@@ -31,6 +34,8 @@ struct State {
     zoom_speed: FloatChoice,
     /// Shift speed factor.
     shift_speed: u32,
+    /// Whether to save the image or not.
+    save_image: bool,
 }
 
 impl Default for State {
@@ -42,6 +47,7 @@ impl Default for State {
             zoom_speed: 0.001,
             shift_speed: 50,
             mouse_pos: (0.0, 0.0),
+            save_image: false,
         }
     }
 }
@@ -120,14 +126,16 @@ fn view(_app: &App, model: &Model, frame: Frame) {
 
 fn update(app: &App, model: &mut Model, update: Update) {
     // Check if the we need to redraw the frame
-    let state = &model.state;
+    let state = &mut model.state;
     if *model.needs_compute.borrow() || state.continuous_compute {
-        let mut pipeline = model.pipeline.borrow_mut();
+        // Get the device and queue from the window
         let window = app.main_window();
         let (device, queue) = {
             let pair = window.device_queue_pair();
             (pair.device(), pair.queue())
         };
+
+        let mut pipeline = model.pipeline.borrow_mut();
 
         // Create a new encoder for the compute pass
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -148,6 +156,25 @@ fn update(app: &App, model: &mut Model, update: Update) {
         queue.submit(Some(encoder.finish()));
 
         model.needs_compute.replace(false);
+    }
+
+    if state.save_image {
+        // Get the device and queue from the window
+        let window = app.main_window();
+        let (device, queue) = {
+            let pair = window.device_queue_pair();
+            (pair.device(), pair.queue())
+        };
+
+        let pipeline = model.pipeline.borrow_mut();
+        let filename = get_save_path(&app.exe_name().unwrap());
+        if pipeline.save_texture(device, queue, &filename).is_err() {
+            println!("Error saving image");
+        } else {
+            println!("Image saved successfully to: {}", filename);
+        }
+
+        state.save_image = false;
     }
 
     // Update egui
@@ -204,13 +231,9 @@ fn update_egui(model: &mut Model, _app: &App) {
                 model.needs_compute.replace(true);
             }
 
-            // TODO: Implement downloading image from GPU to CPU buffer
-            // if ui.button("Save").clicked() {
-            //     state
-            //         .image
-            //         .save(get_save_path(&app.exe_name().unwrap()))
-            //         .unwrap();
-            // }
+            if ui.button("Save").clicked() {
+                state.save_image = true;
+            }
         });
 }
 
@@ -288,12 +311,7 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
             model.needs_compute.replace(true);
         }
         Key::Q => app.quit(),
-        // TODO: Implement downloading image from GPU to CPU buffer
-        // Key::S => model
-        //     .state
-        //     .image
-        //     .save(get_save_path(&app.exe_name().unwrap()))
-        //     .unwrap(),
+        Key::S => state.save_image = true,
         Key::Return => drop(model.needs_compute.replace(true)),
         _other_key => {}
     }

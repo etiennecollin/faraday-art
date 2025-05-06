@@ -1,6 +1,10 @@
 use std::cell::RefMut;
 
-use nannou::prelude::*;
+use nannou::{
+    color::ConvertInto,
+    image::{self, ImageBuffer},
+    prelude::*,
+};
 
 use super::pipeline_buffers::{FaradayData, GlobalData};
 
@@ -28,6 +32,14 @@ pub struct GPUPipeline {
 impl GPUPipeline {
     /// Size of the workgroup for the compute shader.
     const WORKGROUP_SIZE: u32 = 16;
+    /// Format of the texture used for the compute and render pipelines.
+    const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
+    /// Number of channels in the texture.
+    const NUM_CHANNELS: u32 = 4;
+    /// Number of bytes per channel for the texture.
+    const BYTES_PER_CHANNEL: u32 = 4;
+    /// Number of bytes per pixel for the texture.
+    pub const BYTES_PER_PIXEL: u32 = Self::NUM_CHANNELS * Self::BYTES_PER_CHANNEL;
 
     /// Initializes a new GPU compute pipeline.
     ///
@@ -51,8 +63,7 @@ impl GPUPipeline {
             device.create_shader_module(wgpu::include_wgsl!("shaders/post_processing.wgsl"));
 
         // Create texture
-        let texture =
-            Self::create_texture(device, [width, height], wgpu::TextureFormat::Rgba32Float);
+        let texture = Self::create_texture(device, [width, height], Self::TEXTURE_FORMAT);
         let texture_view = texture.view().build();
 
         // Create data buffer
@@ -263,6 +274,99 @@ impl GPUPipeline {
         render_pass.draw(0..3, 0..1); // Draw the full-screen triangle
     }
 
+    pub fn save_texture(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        filename: &str,
+    ) -> Result<(), &'static str> {
+        let dimensions = self.texture.size();
+        let (w, h) = (dimensions[0], dimensions[1]);
+
+        // Create readback buffer
+        let readback_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Texture Readback Buffer"),
+            size: (w * h * Self::BYTES_PER_PIXEL) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        // Create a new encoder for the transfer pass
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Texture Save Encoder"),
+        });
+
+        // Copy texture to buffer
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &readback_buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(Self::BYTES_PER_PIXEL * w),
+                    rows_per_image: Some(h),
+                },
+            },
+            self.texture.extent(),
+        );
+
+        // Submit the encoder to the queue
+        queue.submit(Some(encoder.finish()));
+
+        // Map the buffer synchronously
+        let slice = readback_buffer.slice(..);
+        slice.map_async(wgpu::MapMode::Read, |res| {
+            res.expect("Failed to map buffer");
+        });
+
+        // Poll the device until the buffer is mapped
+        device.poll(wgpu::Maintain::Wait);
+
+        // Read the mapped data
+        let data = slice.get_mapped_range();
+
+        // Convert the vector of bytes to a vector of f32
+        let mut floats = Vec::with_capacity(data.len() / Self::NUM_CHANNELS as usize);
+        for bytes in data.chunks_exact(Self::NUM_CHANNELS as usize) {
+            let float = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+            floats.push(float);
+        }
+
+        // Convert f32 RGBA to u8 RGBA
+        let mut pixels_u8 = Vec::with_capacity((w * h * Self::BYTES_PER_PIXEL) as usize);
+        for chunk in floats.chunks_exact(4) {
+            let r = (chunk[0].clamp(0.0, 1.0) * 255.0).round() as u8;
+            let g = (chunk[1].clamp(0.0, 1.0) * 255.0).round() as u8;
+            let b = (chunk[2].clamp(0.0, 1.0) * 255.0).round() as u8;
+            let a = (chunk[3].clamp(0.0, 1.0) * 255.0).round() as u8;
+            pixels_u8.extend_from_slice(&[r, g, b, a]);
+        }
+
+        // Create an image buffer from the u8 data
+        let img = match ImageBuffer::<image::Rgba<u8>, _>::from_raw(w, h, pixels_u8) {
+            Some(img) => img,
+            None => {
+                return Err("Failed to convert buffer to ImageBuffer");
+            }
+        };
+
+        // Save the image as a PNG file
+        if img.save(filename).is_err() {
+            return Err("Failed to save texture to file");
+        }
+
+        // Unmap the buffer
+        drop(data);
+        readback_buffer.unmap();
+
+        Ok(())
+    }
+
     /// If needed, recreates the texture, its view, and the bind groups
     pub fn check_resize(&mut self, device: &wgpu::Device, new_size: [u32; 2]) {
         if self.texture.size() != new_size {
@@ -333,7 +437,11 @@ impl GPUPipeline {
             .mip_level_count(1)
             .sample_count(1)
             .format(texture_format)
-            .usage(wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING)
+            .usage(
+                wgpu::TextureUsages::STORAGE_BINDING
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
+            )
             .build(device)
     }
 
@@ -382,5 +490,15 @@ impl GPUPipeline {
         wgpu::BindGroupBuilder::new()
             .texture_view(texture_view)
             .build(device, render_bgl)
+    }
+
+    /// Returns the size of the texture.
+    pub fn texture_size(&self) -> [u32; 2] {
+        self.texture.size()
+    }
+
+    /// Returns the extent of the texture.
+    pub fn texture_extent(&self) -> wgpu::Extent3d {
+        self.texture.extent()
     }
 }
