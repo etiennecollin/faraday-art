@@ -10,6 +10,7 @@ use crate::FloatChoice;
 pub struct FaradayData {
     pub max_iter: u32,
     pub num_particles: u32,
+    _padding: [u32; 2],
     pub dt: FloatChoice,
     pub mu: FloatChoice,
     /// Initial render range in x for function
@@ -23,6 +24,7 @@ impl Default for FaradayData {
         Self {
             max_iter: 100,
             num_particles: 20_000,
+            _padding: [0; 2],
             dt: 0.1,
             mu: 4.5,
             x_range: [-2.0, 0.50],

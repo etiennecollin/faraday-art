@@ -65,7 +65,7 @@ fn model(app: &App) -> Model {
     let descriptor = wgpu::DeviceDescriptor {
         label: Some("Point Cloud Renderer Device"),
         features: wgpu::Features::default()
-            | wgpu::Features::SHADER_F64 // To support f64 in shaders
+            // | wgpu::Features::SHADER_F64 // To support f64 in shaders
             | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
         limits: wgpu::Limits {
             // max_texture_dimension_2d: 2 << 14, // To support the big 9x3 4K display wall

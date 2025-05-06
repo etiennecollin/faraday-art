@@ -1,10 +1,11 @@
 // Aliases for types to quickly change the precision of the shader.
-alias float = f64;
-alias vec2float = vec2<f64>;
+alias float = f32;
+alias vec2float = vec2<f32>;
 
 struct FaradayData {
     max_iter: u32,
     num_particles: u32,
+    _padding: vec2<u32>,
     dt: float,
     mu: float,
     x_range: vec2float,
@@ -29,7 +30,7 @@ fn cs_main(
     // Normalize pixel coordinates to [0.0, 1.0] and flip Y-axis
     let uv = vec2float(
         float(gid.x) / float(dims.x),
-        1.0 - float(gid.y) / float(dims.y)
+        float(1.0) - float(gid.y) / float(dims.y)
     );
 
     // Linearly interpolate position in x and y ranges
@@ -49,14 +50,14 @@ fn cs_main(
 
 // We’ll sample f(x ± h) to approximate f′(x):
 fn f(x: float) -> float {
-    return -x * cos(exp(sin(10.0 * x)) * x);
+    return -x * cos(exp(sin(float(10.0) * x)) * x);
 }
 
 fn math_fn(x: float, y: float, dx: float, dy: float, thickness: float) -> vec4<f32> {
     // Half‑pixel radius in world‑space
     // Scale that by thickness
-    let half_px_x = 0.5 * dx * thickness;
-    let half_px_y = 0.5 * dy * thickness;
+    let half_px_x = float(0.5) * dx * thickness;
+    let half_px_y = float(0.5) * dy * thickness;
 
     // Sample f at pixel left/right for slope and vertical‐crossing check
     let f_center = f(x);
@@ -64,26 +65,26 @@ fn math_fn(x: float, y: float, dx: float, dy: float, thickness: float) -> vec4<f
     let f_right = f(x + half_px_x);
 
     // Approximate slope and get inverse normal length
-    let slope = (f_right - f_left) / (2.0 * half_px_x);
-    let inv_len = 1.0 / sqrt(1.0 + slope * slope);
+    let slope = (f_right - f_left) / (float(2.0) * half_px_x);
+    let inv_len = float(1.0) / sqrt(float(1.0) + slope * slope);
 
     // Perpendicular distance from pixel center to curve (along the normal)
     let perp_dist = abs(y - f_center) * inv_len;
 
     // Vertical sign‑crossing: does the curve cross this pixel column?
     // i.e. function values at left/right straddle the pixel’s y
-    let crosses_left = (y - f_left) > 0.0;
-    let crosses_right = (y - f_right) > 0.0;
+    let crosses_left = (y - f_left) > float(0.0);
+    let crosses_right = (y - f_right) > float(0.0);
     let vert_cross = crosses_left != crosses_right;
 
     // Horizontal sign‑crossing: does the curve cross this pixel row?
     // i.e. the curve at this x goes above the top edge or below the bottom edge
-    let crosses_bottom = (f_center - (y - half_px_y)) > 0.0;
-    let crosses_top = (f_center - (y + half_px_y)) > 0.0;
+    let crosses_bottom = (f_center - (y - half_px_y)) > float(0.0);
+    let crosses_top = (f_center - (y + half_px_y)) > float(0.0);
     let horiz_cross = crosses_bottom != crosses_top;
 
     // Smooth alpha fall‑off from center to edges of the thick band
-    let raw_alpha = clamp((half_px_y - perp_dist) / half_px_y, 0.0, 1.0);
+    let raw_alpha = clamp(f32((half_px_y - perp_dist) / half_px_y), 0.0, 1.0);
 
     // If either crossing test fired, force full coverage (alpha = 1)
     let any_cross = vert_cross || horiz_cross;
@@ -97,7 +98,7 @@ fn math_fn(x: float, y: float, dx: float, dy: float, thickness: float) -> vec4<f
 
 fn mandelbrot(z_initial: vec2float) -> vec4<f32> {
     // Initialize mandelbrot at z = 0
-    var z = vec2float(0.0, 0.0);
+    var z = vec2float(float(0.0), float(0.0));
     var iter = 0u;
 
     loop {
@@ -109,12 +110,12 @@ fn mandelbrot(z_initial: vec2float) -> vec4<f32> {
 
         // Check for divergence
         // We assume divergence if the modulus of z is greater than 4.0
-        if z2[0] + z2[1] > 4.0 {
+        if z2[0] + z2[1] > float(4.0) {
             break;
         }
 
         // Compute next iteration
-        z = vec2float(z2[0] - z2[1] + z_initial[0], 2.0 * z[0] * z[1] + z_initial[1]);
+        z = vec2float(z2[0] - z2[1] + z_initial[0], float(2.0) * z[0] * z[1] + z_initial[1]);
         iter = iter + 1u;
     }
 
@@ -173,7 +174,7 @@ fn step_vdp(z: vec2float) -> vec2float {
     // dy/dt = mu * (1 - x^2) * y - x
     return vec2float(
         y,
-        fdata.mu * (1.0 - x * x) * y - x
+        fdata.mu * (float(1.0) - x * x) * y - x
     );
 }
 
@@ -186,7 +187,7 @@ fn van_der_pol(initial: vec2float) -> vec4<f32> {
         z = z + fdata.dt * dz;
 
         // divergence test
-        if (dot(z, z) > 200.0) {
+        if (dot(z, z) > float(200.0)) {
             break;
         }
 
