@@ -45,6 +45,53 @@ fn cs_main(
     textureStore(tex, vec2<u32>(gid.xy), color);
 }
 
+fn mandelbrot(z_initial: vec2float) -> vec4<f32> {
+    // Initialize mandelbrot at z = 0
+    var z = vec2float(float(0.0), float(0.0));
+    var iter = 0u;
+
+    loop {
+        if iter >= fdata.max_iter {
+            break;
+        }
+
+        let z2 = z * z;
+
+        // Check for divergence
+        // We assume divergence if the modulus of z is greater than 4.0
+        if z2[0] + z2[1] > float(4.0) {
+            break;
+        }
+
+        // Compute next iteration
+        z = vec2float(z2[0] - z2[1] + z_initial[0], float(2.0) * z[0] * z[1] + z_initial[1]);
+        iter = iter + 1u;
+    }
+
+    // Color (BW) based on iteration count
+    // var shade: f32;
+    // if iter == fdata.max_iter {
+    //     shade = 0.0;
+    // } else {
+    //     // Normalize the iteration count to [0.0, 1.0]
+    //     shade = f32(iter) / f32(fdata.max_iter);
+    // }
+    // return vec4<f32>(shade, shade, shade, 1.0);
+
+
+    // Color (RGB) based on iteration count
+    let h = f32(iter) / f32(fdata.max_iter);
+    let s = 1.0;
+    var v: f32;
+    if iter == fdata.max_iter {
+        v = 0.0;
+    } else {
+        // Normalize the iteration count to [0.0, 1.0]
+        v = 1.0;
+    }
+    return vec4<f32>(hsv2rgb(h, s, v), 1.0);
+}
+
 // We’ll sample f(x ± h) to approximate f′(x):
 fn f(x: float) -> float {
     return -x * cos(exp(sin(float(10.0) * x)) * x);
@@ -93,75 +140,6 @@ fn math_fn(x: float, y: float, dx: float, dy: float, thickness: float) -> vec4<f
     return mix(bg, fg, final_alpha);
 }
 
-fn mandelbrot(z_initial: vec2float) -> vec4<f32> {
-    // Initialize mandelbrot at z = 0
-    var z = vec2float(float(0.0), float(0.0));
-    var iter = 0u;
-
-    loop {
-        if iter >= fdata.max_iter {
-            break;
-        }
-
-        let z2 = z * z;
-
-        // Check for divergence
-        // We assume divergence if the modulus of z is greater than 4.0
-        if z2[0] + z2[1] > float(4.0) {
-            break;
-        }
-
-        // Compute next iteration
-        z = vec2float(z2[0] - z2[1] + z_initial[0], float(2.0) * z[0] * z[1] + z_initial[1]);
-        iter = iter + 1u;
-    }
-
-    // Color (BW) based on iteration count
-    // var shade: f32;
-    // if iter == fdata.max_iter {
-    //     shade = 0.0;
-    // } else {
-    //     // Normalize the iteration count to [0.0, 1.0]
-    //     shade = f32(iter) / f32(fdata.max_iter);
-    // }
-    // return vec4<f32>(shade, shade, shade, 1.0);
-
-
-    // Color (RGB) based on iteration count
-    let h = f32(iter) / f32(fdata.max_iter);
-    let s = 1.0;
-    var v: f32;
-    if iter == fdata.max_iter {
-        v = 0.0;
-    } else {
-        // Normalize the iteration count to [0.0, 1.0]
-        v = 1.0;
-    }
-    return vec4<f32>(hsv2rgb(h, s, v), 1.0);
-}
-
-fn hsv2rgb(h: f32, s: f32, v: f32) -> vec3f {
-    let c = v * s;
-    let hp = fract(h) * 6.0;
-    let x = c * (1.0 - abs(fract(hp) * 2.0 - 1.0));
-    var rgb = vec3f(0.0);
-    if hp < 1.0 {
-        rgb = vec3f(c, x, 0.0);
-    } else if hp < 2.0 {
-        rgb = vec3f(x, c, 0.0);
-    } else if hp < 3.0 {
-        rgb = vec3f(0.0, c, x);
-    } else if hp < 4.0 {
-        rgb = vec3f(0.0, x, c);
-    } else if hp < 5.0 {
-        rgb = vec3f(x, 0.0, c);
-    } else {
-        rgb = vec3f(c, 0.0, x);
-    }
-    let m = v - c;
-    return rgb + vec3<f32>(m);
-}
-
 fn step_vdp(z: vec2float) -> vec2float {
     // z.x = x, z.y = y
     let x = z.x;
@@ -200,4 +178,26 @@ fn van_der_pol(initial: vec2float) -> vec4<f32> {
         shade = f32(iter) / f32(fdata.max_iter);
     }
     return vec4<f32>(shade, shade, shade, 1.0);
+}
+
+fn hsv2rgb(h: f32, s: f32, v: f32) -> vec3f {
+    let c = v * s;
+    let hp = fract(h) * 6.0;
+    let x = c * (1.0 - abs(fract(hp) * 2.0 - 1.0));
+    var rgb = vec3f(0.0);
+    if hp < 1.0 {
+        rgb = vec3f(c, x, 0.0);
+    } else if hp < 2.0 {
+        rgb = vec3f(x, c, 0.0);
+    } else if hp < 3.0 {
+        rgb = vec3f(0.0, c, x);
+    } else if hp < 4.0 {
+        rgb = vec3f(0.0, x, c);
+    } else if hp < 5.0 {
+        rgb = vec3f(x, 0.0, c);
+    } else {
+        rgb = vec3f(c, 0.0, x);
+    }
+    let m = v - c;
+    return rgb + vec3<f32>(m);
 }
