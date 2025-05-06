@@ -1,5 +1,7 @@
 use nannou::wgpu;
 
+use crate::FloatChoice;
+
 // This struct is passed to the GPU as a uniform buffer
 // See alignment rules for the GPU:
 // https://www.w3.org/TR/WGSL/#alignment-and-size
@@ -8,12 +10,12 @@ use nannou::wgpu;
 pub struct FaradayData {
     pub max_iter: u32,
     pub num_particles: u32,
-    pub dt: f32,
-    pub mu: f32,
+    pub dt: FloatChoice,
+    pub mu: FloatChoice,
     /// Initial render range in x for function
-    x_range: [f32; 2],
+    x_range: [FloatChoice; 2],
     /// Initial render range in y for function
-    y_range: [f32; 2],
+    y_range: [FloatChoice; 2],
 }
 
 impl Default for FaradayData {
@@ -36,22 +38,22 @@ impl FaradayData {
     }
 
     /// Gets the number x_range as a tuple.
-    pub fn get_x_range(&self) -> (f32, f32) {
+    pub fn get_x_range(&self) -> (FloatChoice, FloatChoice) {
         (self.x_range[0], self.x_range[1])
     }
 
     /// Gets the number y_range as a tuple.
-    pub fn get_y_range(&self) -> (f32, f32) {
+    pub fn get_y_range(&self) -> (FloatChoice, FloatChoice) {
         (self.y_range[0], self.y_range[1])
     }
 
     /// Updates the the x_range field of the struct.
-    pub fn update_x_range(&mut self, x_range: (f32, f32)) {
+    pub fn update_x_range(&mut self, x_range: (FloatChoice, FloatChoice)) {
         self.x_range = [x_range.0, x_range.1];
     }
 
     /// Updates the the y_range field of the struct.
-    pub fn update_y_range(&mut self, y_range: (f32, f32)) {
+    pub fn update_y_range(&mut self, y_range: (FloatChoice, FloatChoice)) {
         self.y_range = [y_range.0, y_range.1];
     }
 }

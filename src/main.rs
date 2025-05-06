@@ -1,10 +1,10 @@
 use std::cell::RefCell;
 
 use faraday_art::{
-    get_save_path,
+    FloatChoice, MAX_ZOOM_DELTA, get_save_path,
     utils::{math::*, pipeline::GPUPipeline, pipeline_buffers::FaradayData},
 };
-use nannou::{image::ImageBuffer, prelude::*};
+use nannou::prelude::*;
 use nannou_egui::{
     Egui,
     egui::{self},
@@ -12,13 +12,6 @@ use nannou_egui::{
 
 /// The size of the window in pixels.
 const WINDOW_SIZE: (u32, u32) = (1024, 1024);
-
-/// Maximum zoom delta to prevent floating point errors.
-/// The zoom delta is the difference between the maximum and minimum values of the x and y ranges.
-const MAX_ZOOM_DELTA: f32 = 1e-5;
-
-/// Float type used for computations.
-type FloatChoice = f32;
 
 struct State {
     /// Whether to compute the image continuously or not.
@@ -72,11 +65,10 @@ fn model(app: &App) -> Model {
     let descriptor = wgpu::DeviceDescriptor {
         label: Some("Point Cloud Renderer Device"),
         features: wgpu::Features::default()
-            // | wgpu::Features::SHADER_F64
+            | wgpu::Features::SHADER_F64 // To support f64 in shaders
             | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
         limits: wgpu::Limits {
-            // max_storage_buffer_binding_size: 2 << 30, // To support big point clouds
-            // max_texture_dimension_2d: 2 << 14,        // To support the big 9x3 4K display wall
+            // max_texture_dimension_2d: 2 << 14, // To support the big 9x3 4K display wall
             ..Default::default()
         },
     };
@@ -357,7 +349,7 @@ fn mouse_moved(app: &App, model: &mut Model, pos: Point2) {
     // Convert centered coords (-w/2..w/2) to [0..1]
     let x_norm = (pos.x + w * 0.5) / w;
     let y_norm = (pos.y + h * 0.5) / h;
-    state.mouse_pos = (x_norm, y_norm);
+    state.mouse_pos = (x_norm as FloatChoice, y_norm as FloatChoice);
 
     // If we are dragging, compute how much the mouse moved (in normalized space)
     if state.dragging {

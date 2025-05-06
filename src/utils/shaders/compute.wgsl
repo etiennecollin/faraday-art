@@ -1,6 +1,6 @@
 // Aliases for types to quickly change the precision of the shader.
-alias float = f32;
-alias vec2float = vec2<f32>;
+alias float = f64;
+alias vec2float = vec2<f64>;
 
 struct FaradayData {
     max_iter: u32,
@@ -164,21 +164,22 @@ fn hsv2rgb(h: f32, s: f32, v: f32) -> vec3f {
     return rgb + vec3<f32>(m);
 }
 
-fn step_vdp(z: vec2<f32>) -> vec2<f32> {
+fn step_vdp(z: vec2float) -> vec2float {
     // z.x = x, z.y = y
     let x = z.x;
     let y = z.y;
+
     // dx/dt = y
     // dy/dt = mu * (1 - x^2) * y - x
-    return vec2<f32>(
+    return vec2float(
         y,
         fdata.mu * (1.0 - x * x) * y - x
     );
 }
 
-fn van_der_pol(initial: vec2<f32>) -> vec4<f32> {
+fn van_der_pol(initial: vec2float) -> vec4<f32> {
     var z = initial;
-    var iter: u32 = 0u;
+    var iter = 0u;
     while (iter < fdata.max_iter) {
         // Single Euler step (feel free to swap in RK4 for more accuracy)
         let dz = step_vdp(z);

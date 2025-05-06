@@ -1,7 +1,6 @@
 use std::cell::RefMut;
 
 use nannou::{
-    color::ConvertInto,
     image::{self, ImageBuffer},
     prelude::*,
 };
