@@ -5,12 +5,12 @@ use crate::FloatChoice;
 // This struct is passed to the GPU as a uniform buffer
 // See alignment rules for the GPU:
 // https://www.w3.org/TR/WGSL/#alignment-and-size
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Clone, Copy)]
 pub struct FaradayData {
     pub max_iter: u32,
     pub num_particles: u32,
-    _padding: [u32; 2], // Needed to align the vec2<f64> to 16 bytes
+    _padding_0: [u32; 2], // Needed to align the vec2<f64> to 16 bytes
     pub dt: FloatChoice,
     pub mu: FloatChoice,
     /// Initial render range in x for function
@@ -24,7 +24,7 @@ impl Default for FaradayData {
         Self {
             max_iter: 100,
             num_particles: 20_000,
-            _padding: [0; 2],
+            _padding_0: [0; 2],
             dt: 0.1,
             mu: 4.5,
             x_range: [-2.0, 0.50],

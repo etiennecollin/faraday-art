@@ -5,7 +5,7 @@ alias vec2float = vec2<f32>;
 struct FaradayData {
     max_iter: u32,
     num_particles: u32,
-    _padding: vec2<u32>,
+    _padding_0: vec2<u32>,
     dt: float,
     mu: float,
     x_range: vec2float,
@@ -23,17 +23,14 @@ fn cs_main(
 ) {
     // Ensure the invocation is within bounds
     let dims = textureDimensions(tex);
-    if (gid.x >= dims.x || gid.y >= dims.y) {
-        return;
-    }
+    if (any(gid.xy >= dims)) { return; }
 
-    // Normalize pixel coordinates to [0.0, 1.0] and flip Y-axis
-    let uv = vec2float(
-        float(gid.x) / float(dims.x),
-        float(1.0) - float(gid.y) / float(dims.y)
-    );
+    // Sample at pixel centers
+    let dims_f = vec2float(dims);
+    var uv = (vec2float(gid.xy) + vec2float(0.5, 0.5)) / dims_f;
+    uv.y = float(1.0) - uv.y; // Flip Y
 
-    // Linearly interpolate position in x and y ranges
+    // Get x/y in "math" space
     let x = mix(fdata.x_range[0], fdata.x_range[1], uv.x);
     let y = mix(fdata.y_range[0], fdata.y_range[1], uv.y);
 
