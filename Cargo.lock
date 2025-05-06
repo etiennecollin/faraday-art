@@ -547,7 +547,6 @@ dependencies = [
  "nannou",
  "nannou_egui",
  "num",
- "rayon",
 ]
 
 [[package]]
