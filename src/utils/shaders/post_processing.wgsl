@@ -23,9 +23,7 @@ fn cs_min_max(
 ) {
     // Ensure the invocation is within bounds
     let dims = textureDimensions(tex);
-    if (gid.x >= dims.x || gid.y >= dims.y) {
-        return;
-    }
+    if (any(gid.xy >= dims)) { return; }
 
     // Compute a scalar luminance/brightness from RGB
     let color = textureLoad(tex, vec2<u32>(gid.xy));
@@ -70,9 +68,7 @@ fn cs_recalibrate(
 ) {
     // Ensure the invocation is within bounds
     let dims = textureDimensions(tex);
-    if (gid.x >= dims.x || gid.y >= dims.y) {
-        return;
-    }
+    if (any(gid.xy >= dims)) { return; }
 
     let color = textureLoad(tex, vec2<u32>(gid.xy));
 
@@ -98,9 +94,7 @@ fn cs_histogram(
 ) {
     // Ensure the invocation is within bounds
     let dims = textureDimensions(tex);
-    if (gid.x >= dims.x || gid.y >= dims.y) {
-        return;
-    }
+    if (any(gid.xy >= dims)) { return; }
 
     let color = textureLoad(tex, vec2<u32>(gid.xy));
     let bin = u32(get_luminance(color) * 255.0);
@@ -143,9 +137,7 @@ fn cs_equalize(
 ) {
     // Ensure the invocation is within bounds
     let dims = textureDimensions(tex);
-    if (gid.x >= dims.x || gid.y >= dims.y) {
-        return;
-    }
+    if (any(gid.xy >= dims)) { return; }
 
     let color = textureLoad(tex, vec2<u32>(gid.xy));
 

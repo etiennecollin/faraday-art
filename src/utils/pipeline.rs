@@ -5,13 +5,13 @@ use nannou::{
     prelude::*,
 };
 
-use super::pipeline_buffers::{FaradayData, GlobalData};
+use super::pipeline_buffers::{ComputeData, PostProcessingData};
 
 pub struct GPUPipeline {
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
-    faraday_data_buffer: wgpu::Buffer,
-    global_data_buffer: wgpu::Buffer,
+    compute_data_buffer: wgpu::Buffer,
+    processing_data_buffer: wgpu::Buffer,
     // Generate texture
     compute_bgl: wgpu::BindGroupLayout,
     compute_bg: wgpu::BindGroup,
@@ -45,14 +45,14 @@ impl GPUPipeline {
     /// # Arguments
     ///
     /// - `window`: A reference to the window used for the pipeline.
-    /// - `faraday_data`: The Faraday data to be used in the pipeline. This
+    /// - `compute_data`: The compute data to be used in the pipeline. This
     ///   struct contains the data that will be passed to the compute shader.
-    pub fn new(window: &Window, faraday_data: FaradayData) -> Self {
+    pub fn new(window: &Window, compute_data: ComputeData) -> Self {
         // Initialize utilities
         let device = window.device();
         let msaa_samples = window.msaa_samples();
         let (width, height) = window.inner_size_pixels();
-        let global_data = GlobalData::default();
+        let processing_data = PostProcessingData::default();
 
         // Load shader
         let compute_shader =
@@ -65,16 +65,15 @@ impl GPUPipeline {
         let texture = Self::create_texture(device, [width, height], Self::TEXTURE_FORMAT);
         let texture_view = texture.view().build();
 
-        // Create data buffer
-        let faraday_data_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Faraday Data Uniforms Buffer"),
-            contents: faraday_data.as_bytes(),
+        // Create data buffers
+        let compute_data_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Compute Data Uniforms Buffer"),
+            contents: compute_data.as_bytes(),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-
-        let global_data_buffer = device.create_buffer_init(&wgpu::BufferInitDescriptor {
-            label: Some("Global Data Buffer"),
-            contents: global_data.as_bytes(),
+        let processing_data_buffer = device.create_buffer_init(&wgpu::BufferInitDescriptor {
+            label: Some("Post-Processing Data Storage Buffer"),
+            contents: processing_data.as_bytes(),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -84,8 +83,8 @@ impl GPUPipeline {
             device,
             &compute_bgl,
             &texture_view,
-            &faraday_data_buffer,
-            &global_data_buffer,
+            &compute_data_buffer,
+            &processing_data_buffer,
         );
 
         // Create the compute pipeline
@@ -95,6 +94,7 @@ impl GPUPipeline {
                 bind_group_layouts: &[&compute_bgl],
                 push_constant_ranges: &[],
             });
+
         let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Compute Pipeline"),
             layout: Some(&compute_pipeline_layout),
@@ -167,8 +167,8 @@ impl GPUPipeline {
         GPUPipeline {
             texture,
             texture_view,
-            faraday_data_buffer,
-            global_data_buffer,
+            compute_data_buffer,
+            processing_data_buffer,
             // Generate texture
             compute_bgl,
             compute_bg,
@@ -213,11 +213,11 @@ impl GPUPipeline {
             pass.dispatch_workgroups(dispatch_x, dispatch_y, 1);
         }
 
-        // Clear global data buffer
+        // Clear processing data buffer
         queue.write_buffer(
-            &self.global_data_buffer,
+            &self.processing_data_buffer,
             0,
-            GlobalData::default().as_bytes(),
+            PostProcessingData::default().as_bytes(),
         );
 
         {
@@ -384,42 +384,42 @@ impl GPUPipeline {
             device,
             &self.compute_bgl,
             &self.texture_view,
-            &self.faraday_data_buffer,
-            &self.global_data_buffer,
+            &self.compute_data_buffer,
+            &self.processing_data_buffer,
         );
 
         // Rebuild the render bind group
         self.render_bg = Self::create_render_bg(device, &self.render_bgl, &self.texture_view);
     }
 
-    /// Updates the Faraday data buffer with new data.
+    /// Updates the Compute data buffer with new data.
     ///
     /// # Arguments
     ///
     /// - `device`: A reference to the device used for the pipeline.
     /// - `encoder`: A mutable reference to the command encoder used for the
     ///   pipeline.
-    /// - `faraday_data`: The new Faraday data to be used in the pipeline. This
+    /// - `compute_data`: The new compute data to be used in the pipeline. This
     ///   data will replace the old data in the compute shader.
-    pub fn update_faraday_data(
+    pub fn update_compute_data_buffer(
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-        faraday_data: FaradayData,
+        compute_data: ComputeData,
     ) {
-        let faraday_data_storage_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Faraday Data Uniforms Buffer"),
-            contents: faraday_data.as_bytes(),
+        let compute_data_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Compute Data Uniforms Buffer"),
+            contents: compute_data.as_bytes(),
             usage: wgpu::BufferUsages::COPY_SRC,
         });
 
         // Copy the new uniforms buffer to the uniform buffer.
         encoder.copy_buffer_to_buffer(
-            &faraday_data_storage_buffer,
+            &compute_data_buffer,
             0,
-            &self.faraday_data_buffer,
+            &self.compute_data_buffer,
             0,
-            std::mem::size_of::<FaradayData>() as wgpu::BufferAddress,
+            std::mem::size_of::<ComputeData>() as wgpu::BufferAddress,
         );
     }
 
@@ -463,13 +463,13 @@ impl GPUPipeline {
         device: &wgpu::Device,
         compute_bgl: &wgpu::BindGroupLayout,
         texture_view: &wgpu::TextureView,
-        faraday_data_buffer: &wgpu::Buffer,
-        global_data_buffer: &wgpu::Buffer,
+        compute_data_buffer: &wgpu::Buffer,
+        processing_data_buffer: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         wgpu::BindGroupBuilder::new()
             .texture_view(texture_view)
-            .binding(faraday_data_buffer.as_entire_binding())
-            .binding(global_data_buffer.as_entire_binding())
+            .binding(compute_data_buffer.as_entire_binding())
+            .binding(processing_data_buffer.as_entire_binding())
             .build(device, compute_bgl)
     }
 

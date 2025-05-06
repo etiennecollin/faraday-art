@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use faraday_art::{
     FloatChoice, MAX_ZOOM_DELTA, get_save_path,
-    utils::{math::*, pipeline::GPUPipeline, pipeline_buffers::FaradayData},
+    utils::{math::*, pipeline::GPUPipeline, pipeline_buffers::ComputeData},
 };
 use nannou::prelude::*;
 use nannou_egui::{
@@ -49,11 +49,12 @@ struct Model {
     egui: Egui,
     state: State,
     pipeline: RefCell<GPUPipeline>,
-    faraday_data: FaradayData,
-    /// Indicates whether the faraday data needs to be updated.
-    update_faraday_data: RefCell<bool>,
-    /// Indicates whether the image needs to be recomputed.
-    needs_compute: RefCell<bool>,
+    /// Struct containing the data to be processed by the compute shader.
+    compute_data: ComputeData,
+    /// Indicates whether the compute data buffer needs to be updated.
+    update_compute_data_buffer: RefCell<bool>,
+    /// Indicates whether the texture needs to be recomputed.
+    recompute_texture: RefCell<bool>,
 }
 
 fn main() {
@@ -61,12 +62,18 @@ fn main() {
 }
 
 fn model(app: &App) -> Model {
+    let mut gpu_features =
+        wgpu::Features::default() | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+
+    #[cfg(feature = "f64")]
+    {
+        gpu_features |= wgpu::Features::SHADER_F64; // To support f64 in shaders
+    }
+
     // Set GPU device descriptor
     let descriptor = wgpu::DeviceDescriptor {
         label: Some("Point Cloud Renderer Device"),
-        features: wgpu::Features::default()
-            // | wgpu::Features::SHADER_F64 // To support f64 in shaders
-            | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+        features: gpu_features,
         limits: wgpu::Limits {
             // max_texture_dimension_2d: 2 << 14, // To support the big 9x3 4K display wall
             ..Default::default()
@@ -92,34 +99,37 @@ fn model(app: &App) -> Model {
     let state = State::default();
     let egui = Egui::from_window(&window);
 
-    let faraday_data = FaradayData::default();
-    let pipeline = GPUPipeline::new(&window, faraday_data);
+    let compute_data = ComputeData::default();
+    let pipeline = GPUPipeline::new(&window, compute_data);
 
     Model {
         egui,
         state,
         pipeline: pipeline.into(),
-        faraday_data,
-        update_faraday_data: false.into(),
-        needs_compute: true.into(),
+        compute_data,
+        update_compute_data_buffer: false.into(),
+        recompute_texture: true.into(),
     }
 }
 
 fn view(_app: &App, model: &Model, frame: Frame) {
-    // Render the image
-    let pipeline = model.pipeline.borrow();
+    // Render the texture
     let encoder = frame.command_encoder();
     let target_view = frame.texture_view();
-    pipeline.dispatch_render(encoder, target_view);
+    model
+        .pipeline
+        .borrow()
+        .dispatch_render(encoder, target_view);
 
     // Update the egui
     model.egui.draw_to_frame(&frame).unwrap();
 }
 
 fn update(app: &App, model: &mut Model, update: Update) {
-    // Check if the we need to redraw the frame
     let state = &mut model.state;
-    if *model.needs_compute.borrow() || state.continuous_compute {
+
+    // Check if a texture recompute is requested
+    if *model.recompute_texture.borrow() || state.continuous_compute {
         // Get the device and queue from the window
         let window = app.main_window();
         let (device, queue) = {
@@ -134,10 +144,10 @@ fn update(app: &App, model: &mut Model, update: Update) {
             label: Some("Compute Encoder"),
         });
 
-        // Check if the faraday data needs to be updated
-        if *model.update_faraday_data.borrow() {
-            pipeline.update_faraday_data(device, &mut encoder, model.faraday_data);
-            model.update_faraday_data.replace(false);
+        // Check if the data buffer needs to be updated
+        if *model.update_compute_data_buffer.borrow() {
+            pipeline.update_compute_data_buffer(device, &mut encoder, model.compute_data);
+            model.update_compute_data_buffer.replace(false);
         }
 
         // Dispatch the compute pipeline
@@ -147,9 +157,10 @@ fn update(app: &App, model: &mut Model, update: Update) {
         // Submit the command buffer
         queue.submit(Some(encoder.finish()));
 
-        model.needs_compute.replace(false);
+        model.recompute_texture.replace(false);
     }
 
+    // Check if an image save is requested
     if state.save_image {
         // Get the device and queue from the window
         let window = app.main_window();
@@ -158,6 +169,7 @@ fn update(app: &App, model: &mut Model, update: Update) {
             (pair.device(), pair.queue())
         };
 
+        // Save the image to a file
         let pipeline = model.pipeline.borrow_mut();
         let filename = get_save_path(&app.exe_name().unwrap());
         if pipeline.save_texture(device, queue, &filename).is_err() {
@@ -189,30 +201,30 @@ fn update_egui(model: &mut Model, _app: &App) {
             ui.add(egui::Slider::new(&mut state.shift_speed, 10..=100));
 
             ui.label("Max iterations:");
-            let old_max_iterations = model.faraday_data.max_iter;
+            let old_max_iterations = model.compute_data.max_iter;
             ui.add(egui::Slider::new(
-                &mut model.faraday_data.max_iter,
+                &mut model.compute_data.max_iter,
                 200..=2000,
             ));
-            if old_max_iterations != model.faraday_data.max_iter {
-                model.update_faraday_data.replace(true);
-                model.needs_compute.replace(true);
+            if old_max_iterations != model.compute_data.max_iter {
+                model.update_compute_data_buffer.replace(true);
+                model.recompute_texture.replace(true);
             }
 
             ui.label("dt:");
-            let old_dt = model.faraday_data.dt;
-            ui.add(egui::Slider::new(&mut model.faraday_data.dt, 0.01..=1.0));
-            if old_dt != model.faraday_data.dt {
-                model.update_faraday_data.replace(true);
-                model.needs_compute.replace(true);
+            let old_dt = model.compute_data.dt;
+            ui.add(egui::Slider::new(&mut model.compute_data.dt, 0.01..=1.0));
+            if old_dt != model.compute_data.dt {
+                model.update_compute_data_buffer.replace(true);
+                model.recompute_texture.replace(true);
             }
 
             ui.label("mu:");
-            let old_mu = model.faraday_data.mu;
-            ui.add(egui::Slider::new(&mut model.faraday_data.mu, 0.0..=10.0));
-            if old_mu != model.faraday_data.mu {
-                model.update_faraday_data.replace(true);
-                model.needs_compute.replace(true);
+            let old_mu = model.compute_data.mu;
+            ui.add(egui::Slider::new(&mut model.compute_data.mu, 0.0..=10.0));
+            if old_mu != model.compute_data.mu {
+                model.update_compute_data_buffer.replace(true);
+                model.recompute_texture.replace(true);
             }
 
             ui.separator();
@@ -220,7 +232,7 @@ fn update_egui(model: &mut Model, _app: &App) {
             ui.checkbox(&mut state.continuous_compute, "Continuous Redraw");
 
             if ui.button("Update").clicked() {
-                model.needs_compute.replace(true);
+                model.recompute_texture.replace(true);
             }
 
             if ui.button("Save").clicked() {
@@ -229,16 +241,15 @@ fn update_egui(model: &mut Model, _app: &App) {
         });
 }
 
-fn resized(app: &App, model: &mut Model, dim: Vec2) {
-    let mut pipeline = model.pipeline.borrow_mut();
+fn resized(app: &App, model: &mut Model, _dim: Vec2) {
     let window = app.main_window();
     let device = window.device();
+    let (width, height) = window.inner_size_pixels();
 
-    // When the window size changes, recreate our depth texture to match.
-    pipeline.resize(device, [dim.x as u32 * 2, dim.y as u32 * 2]);
-
-    // Signify that we need to redraw the frame.
-    model.needs_compute.replace(true);
+    // When the window size changes, recreate our texture to match and
+    // ask to recompute the image
+    model.pipeline.borrow_mut().resize(device, [width, height]);
+    model.recompute_texture.replace(true);
 }
 
 fn raw_window_event(_app: &App, model: &mut Model, event: &nannou::winit::event::WindowEvent) {
@@ -247,73 +258,75 @@ fn raw_window_event(_app: &App, model: &mut Model, event: &nannou::winit::event:
 
 fn key_pressed(app: &App, model: &mut Model, key: Key) {
     let state = &mut model.state;
+
+    // When we shift or zoom, we need to update the data buffer and
+    // ask to recompute the texture
     match key {
         Key::Left => {
-            let current_x_range = model.faraday_data.get_x_range();
+            let current_x_range = model.compute_data.get_x_range();
             let shift_x = get_shift_speed(current_x_range, state.shift_speed);
             let new_x_range = shift(current_x_range, -shift_x);
-            model.faraday_data.update_x_range(new_x_range);
-            model.update_faraday_data.replace(true);
-            model.needs_compute.replace(true);
+            model.compute_data.update_x_range(new_x_range);
+            model.update_compute_data_buffer.replace(true);
+            model.recompute_texture.replace(true);
         }
         Key::Right => {
-            let current_x_range = model.faraday_data.get_x_range();
+            let current_x_range = model.compute_data.get_x_range();
             let shift_x = get_shift_speed(current_x_range, state.shift_speed);
             let new_x_range = shift(current_x_range, shift_x);
-            model.faraday_data.update_x_range(new_x_range);
-            model.update_faraday_data.replace(true);
-            model.needs_compute.replace(true);
+            model.compute_data.update_x_range(new_x_range);
+            model.update_compute_data_buffer.replace(true);
+            model.recompute_texture.replace(true);
         }
         Key::Up => {
-            let current_y_range = model.faraday_data.get_y_range();
+            let current_y_range = model.compute_data.get_y_range();
             let shift_y = get_shift_speed(current_y_range, state.shift_speed);
             let new_y_range = shift(current_y_range, shift_y);
-            model.faraday_data.update_y_range(new_y_range);
-            model.update_faraday_data.replace(true);
-            model.needs_compute.replace(true);
+            model.compute_data.update_y_range(new_y_range);
+            model.update_compute_data_buffer.replace(true);
+            model.recompute_texture.replace(true);
         }
         Key::Down => {
-            let current_y_range = model.faraday_data.get_y_range();
+            let current_y_range = model.compute_data.get_y_range();
             let shift_y = get_shift_speed(current_y_range, state.shift_speed);
             let new_y_range = shift(current_y_range, -shift_y);
-            model.faraday_data.update_y_range(new_y_range);
-            model.update_faraday_data.replace(true);
-            model.needs_compute.replace(true);
+            model.compute_data.update_y_range(new_y_range);
+            model.update_compute_data_buffer.replace(true);
+            model.recompute_texture.replace(true);
         }
         Key::Plus | Key::Equals => {
             let zoom_factor = 1.0 - 10.0 * state.zoom_speed;
-            let current_x_range = model.faraday_data.get_x_range();
-            let current_y_range = model.faraday_data.get_y_range();
+            let current_x_range = model.compute_data.get_x_range();
+            let current_y_range = model.compute_data.get_y_range();
             let (new_x_range, new_y_range) =
                 zoom_relative(current_x_range, current_y_range, zoom_factor, (0.5, 0.5));
-            model.faraday_data.update_x_range(new_x_range);
-            model.faraday_data.update_y_range(new_y_range);
-            model.update_faraday_data.replace(true);
-            model.needs_compute.replace(true);
+            model.compute_data.update_x_range(new_x_range);
+            model.compute_data.update_y_range(new_y_range);
+            model.update_compute_data_buffer.replace(true);
+            model.recompute_texture.replace(true);
         }
         Key::Minus => {
             let zoom_factor = 1.0 + 10.0 * state.zoom_speed;
-            let current_x_range = model.faraday_data.get_x_range();
-            let current_y_range = model.faraday_data.get_y_range();
+            let current_x_range = model.compute_data.get_x_range();
+            let current_y_range = model.compute_data.get_y_range();
             let (new_x_range, new_y_range) =
                 zoom_relative(current_x_range, current_y_range, zoom_factor, (0.5, 0.5));
-            model.faraday_data.update_x_range(new_x_range);
-            model.faraday_data.update_y_range(new_y_range);
-            model.update_faraday_data.replace(true);
-            model.needs_compute.replace(true);
+            model.compute_data.update_x_range(new_x_range);
+            model.compute_data.update_y_range(new_y_range);
+            model.update_compute_data_buffer.replace(true);
+            model.recompute_texture.replace(true);
         }
         Key::Q => app.quit(),
         Key::S => state.save_image = true,
-        Key::Return => drop(model.needs_compute.replace(true)),
+        Key::Return => drop(model.recompute_texture.replace(true)),
         _other_key => {}
     }
 }
 
 fn mouse_wheel(_app: &App, model: &mut Model, delta: MouseScrollDelta, _phase: TouchPhase) {
     let state = &mut model.state;
-
-    let current_x_range = model.faraday_data.get_x_range();
-    let current_y_range = model.faraday_data.get_y_range();
+    let current_x_range = model.compute_data.get_x_range();
+    let current_y_range = model.compute_data.get_y_range();
 
     // Compute the zoom factor based on the mouse wheel delta
     let zoom_factor = match delta {
@@ -321,7 +334,7 @@ fn mouse_wheel(_app: &App, model: &mut Model, delta: MouseScrollDelta, _phase: T
         MouseScrollDelta::PixelDelta(pos) => 1.0 + pos.y as FloatChoice * state.zoom_speed,
     };
 
-    // Compute the new x and y ranges based on the zoom factor and mouse position
+    // Compute the new x/y ranges based on the zoom factor and mouse position
     let (new_x_range, new_y_range) = zoom_relative(
         current_x_range,
         current_y_range,
@@ -329,17 +342,18 @@ fn mouse_wheel(_app: &App, model: &mut Model, delta: MouseScrollDelta, _phase: T
         state.mouse_pos,
     );
 
+    // Make sure not to zoom too much to avoid numerical issues
     if (new_x_range.1 - new_x_range.0).abs() < MAX_ZOOM_DELTA
         || (new_y_range.1 - new_y_range.0).abs() < MAX_ZOOM_DELTA
     {
         return;
     }
 
-    // Update the x and y ranges in the FaradayData
-    model.faraday_data.update_x_range(new_x_range);
-    model.faraday_data.update_y_range(new_y_range);
-    model.update_faraday_data.replace(true);
-    model.needs_compute.replace(true);
+    // Update the x/y ranges in the data buffer and recompute the texture
+    model.compute_data.update_x_range(new_x_range);
+    model.compute_data.update_y_range(new_y_range);
+    model.update_compute_data_buffer.replace(true);
+    model.recompute_texture.replace(true);
 }
 
 fn mouse_moved(app: &App, model: &mut Model, pos: Point2) {
@@ -349,6 +363,8 @@ fn mouse_moved(app: &App, model: &mut Model, pos: Point2) {
     // Convert centered coords (-w/2..w/2) to [0..1]
     let x_norm = (pos.x + w * 0.5) / w;
     let y_norm = (pos.y + h * 0.5) / h;
+
+    // Store the normalized mouse position
     state.mouse_pos = (x_norm as FloatChoice, y_norm as FloatChoice);
 
     // If we are dragging, compute how much the mouse moved (in normalized space)
@@ -358,8 +374,8 @@ fn mouse_moved(app: &App, model: &mut Model, pos: Point2) {
         let dy = state.mouse_pos.1 - prev_y;
 
         // Get current ranges
-        let (x0, x1) = model.faraday_data.get_x_range();
-        let (y0, y1) = model.faraday_data.get_y_range();
+        let (x0, x1) = model.compute_data.get_x_range();
+        let (y0, y1) = model.compute_data.get_y_range();
 
         // Compute how much to shift in "range units"
         let range_w = x1 - x0;
@@ -367,15 +383,15 @@ fn mouse_moved(app: &App, model: &mut Model, pos: Point2) {
         let shift_x = -dx * range_w;
         let shift_y = -dy * range_h;
 
-        // Apply shift()
+        // Apply shift to the viewport
         let new_x_range = shift((x0, x1), shift_x);
         let new_y_range = shift((y0, y1), shift_y);
-        model.faraday_data.update_x_range(new_x_range);
-        model.faraday_data.update_y_range(new_y_range);
+        model.compute_data.update_x_range(new_x_range);
+        model.compute_data.update_y_range(new_y_range);
 
-        // Flag to recompute and update uniforms
-        model.update_faraday_data.replace(true);
-        model.needs_compute.replace(true);
+        // Ask to update data buffer and recompute the texture
+        model.update_compute_data_buffer.replace(true);
+        model.recompute_texture.replace(true);
 
         // Remember this pos for the next delta
         state.prev_drag_pos = state.mouse_pos;
@@ -384,11 +400,15 @@ fn mouse_moved(app: &App, model: &mut Model, pos: Point2) {
 
 fn mouse_pressed(_app: &App, model: &mut Model, _button: MouseButton) {
     let state = &mut model.state;
+
+    // Start a mouse drag
     state.dragging = true;
     state.prev_drag_pos = state.mouse_pos;
 }
 
 fn mouse_released(_app: &App, model: &mut Model, _button: MouseButton) {
     let state = &mut model.state;
+
+    // End the mouse drag
     state.dragging = false;
 }

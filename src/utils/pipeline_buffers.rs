@@ -7,10 +7,10 @@ use crate::FloatChoice;
 // https://www.w3.org/TR/WGSL/#alignment-and-size
 #[repr(C, align(16))]
 #[derive(Clone, Copy)]
-pub struct FaradayData {
+pub struct ComputeData {
     pub max_iter: u32,
     pub num_particles: u32,
-    _padding_0: [u32; 2], // Needed to align the vec2<f64> to 16 bytes
+    _padding: [u32; 2], // Needed to align the vec2<f64> to 16 bytes
     pub dt: FloatChoice,
     pub mu: FloatChoice,
     /// Initial render range in x for function
@@ -19,12 +19,12 @@ pub struct FaradayData {
     y_range: [FloatChoice; 2],
 }
 
-impl Default for FaradayData {
+impl Default for ComputeData {
     fn default() -> Self {
         Self {
             max_iter: 100,
             num_particles: 20_000,
-            _padding_0: [0; 2],
+            _padding: [0; 2],
             dt: 0.1,
             mu: 4.5,
             x_range: [-2.0, 0.50],
@@ -33,7 +33,7 @@ impl Default for FaradayData {
     }
 }
 
-impl FaradayData {
+impl ComputeData {
     /// Returns the struct as a byte slice.
     pub fn as_bytes(&self) -> &[u8] {
         unsafe { wgpu::bytes::from(self) }
@@ -60,12 +60,12 @@ impl FaradayData {
     }
 }
 
-// This struct is passed to the GPU as a uniform buffer
+// This struct is passed to the GPU as a storage buffer
 // See alignment rules for the GPU:
 // https://www.w3.org/TR/WGSL/#alignment-and-size
-#[repr(C)]
+#[repr(C, align(4))]
 #[derive(Clone, Copy)]
-pub struct GlobalData {
+pub struct PostProcessingData {
     value_min: f32,
     value_max: f32,
     histogram_n: u32,
@@ -74,7 +74,7 @@ pub struct GlobalData {
     cdf_non_zero: f32,
     cdf: [f32; 256],
 }
-impl Default for GlobalData {
+impl Default for PostProcessingData {
     fn default() -> Self {
         Self {
             value_min: f32::MAX,
@@ -88,7 +88,7 @@ impl Default for GlobalData {
     }
 }
 
-impl GlobalData {
+impl PostProcessingData {
     /// Returns the struct as a byte slice.
     pub fn as_bytes(&self) -> &[u8] {
         unsafe { wgpu::bytes::from(self) }

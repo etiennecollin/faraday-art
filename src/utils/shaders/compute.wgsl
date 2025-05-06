@@ -5,7 +5,7 @@ alias vec2float = vec2<f32>;
 struct FaradayData {
     max_iter: u32,
     num_particles: u32,
-    _padding_0: vec2<u32>,
+    _padding: vec2<u32>,
     dt: float,
     mu: float,
     x_range: vec2float,

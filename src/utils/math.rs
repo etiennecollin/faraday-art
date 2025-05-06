@@ -53,7 +53,7 @@ pub fn zoom<T: Float>(
     (x_range_final, y_range_final)
 }
 
-/// Takes the x and y ranges and zooms in by a factor of `zoom_factor` centered
+/// Takes an x and y range and zooms-in by a factor of `zoom_factor` centered
 /// at a relative `zoom_focus` point.
 ///
 /// # Arguments
