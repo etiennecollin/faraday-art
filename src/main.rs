@@ -62,6 +62,7 @@ fn main() {
 }
 
 fn model(app: &App) -> Model {
+    #[allow(unused_mut)]
     let mut gpu_features =
         wgpu::Features::default() | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
 
