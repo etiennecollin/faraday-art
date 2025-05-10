@@ -17,7 +17,7 @@ macro_rules! define_float_choice {
 define_float_choice!(f32, 1e-5);
 
 #[cfg(feature = "f64")]
-define_float_choice!(f64, 1e-20);
+define_float_choice!(f64, 1e-13);
 
 /// Returns the path to the save file with a unique name based on the current
 /// time.
