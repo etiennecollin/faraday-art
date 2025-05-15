@@ -19,6 +19,10 @@ define_float_choice!(f32, 1e-5);
 #[cfg(feature = "f64")]
 define_float_choice!(f64, 1e-13);
 
+/// Initial render range in x for function.
+const INITIAL_X_RANGE: [FloatChoice; 2] = [-2.0, 0.50];
+const INITIAL_Y_RANGE: [FloatChoice; 2] = [-1.25, 1.25];
+
 /// Returns the path to the save file with a unique name based on the current
 /// time.
 ///
