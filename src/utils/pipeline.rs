@@ -26,6 +26,9 @@ pub struct GPUPipeline {
     render_bgl: wgpu::BindGroupLayout,
     render_bg: wgpu::BindGroup,
     render_pipeline: wgpu::RenderPipeline,
+    // Settings
+    /// Enables or disables post-processing.
+    pub enable_post_processing: bool,
 }
 
 impl GPUPipeline {
@@ -183,6 +186,7 @@ impl GPUPipeline {
             render_bgl,
             render_bg,
             render_pipeline,
+            enable_post_processing: true,
         }
     }
 
@@ -211,6 +215,10 @@ impl GPUPipeline {
             pass.set_pipeline(&self.compute_pipeline);
             pass.set_bind_group(0, &self.compute_bg, &[]);
             pass.dispatch_workgroups(dispatch_x, dispatch_y, 1);
+        }
+
+        if !self.enable_post_processing {
+            return;
         }
 
         // Clear processing data buffer

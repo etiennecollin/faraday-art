@@ -232,6 +232,15 @@ fn update_egui(model: &mut Model, _app: &App) {
 
             ui.checkbox(&mut state.continuous_compute, "Continuous Redraw");
 
+            let old_post_processing = model.pipeline.borrow().enable_post_processing;
+            ui.checkbox(
+                &mut model.pipeline.borrow_mut().enable_post_processing,
+                "Post Processing",
+            );
+            if old_post_processing != model.pipeline.borrow().enable_post_processing {
+                model.recompute_texture.replace(true);
+            }
+
             if ui.button("Update").clicked() {
                 model.recompute_texture.replace(true);
             }
