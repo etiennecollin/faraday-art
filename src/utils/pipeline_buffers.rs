@@ -1,6 +1,6 @@
 use nannou::wgpu;
 
-use crate::FloatChoice;
+use crate::{FloatChoice, INITIAL_X_RANGE, INITIAL_Y_RANGE};
 
 // This struct is passed to the GPU as a uniform buffer
 // See alignment rules for the GPU:
@@ -27,8 +27,8 @@ impl Default for ComputeData {
             _padding: [0; 2],
             dt: 0.1,
             mu: 4.5,
-            x_range: [-2.0, 0.50],
-            y_range: [-1.25, 1.25],
+            x_range: INITIAL_X_RANGE,
+            y_range: INITIAL_Y_RANGE,
         }
     }
 }
